@@ -11,9 +11,11 @@ func _initialize() -> void:
 	var root := scene.instantiate()
 	get_root().add_child(root)
 	await process_frame
+	root._start_sandbox(false)
+	await process_frame
 
 	var camera := root.get_node("IsoCamera") as Camera2D
-	var hud_panel := root.get_node("Hud/HudRoot/StatusPanel") as Control
+	var hud_panel := root.get_node("Ui/UiRoot/GameHud/StatusPanel") as Control
 	var initial_zoom := camera.zoom
 
 	get_root().size = Vector2i(1920, 720)

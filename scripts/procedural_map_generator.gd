@@ -1,0 +1,177 @@
+extends RefCounted
+
+const MapData := preload("res://scripts/map_data.gd")
+
+const TERRAIN_CLEAR := 0
+const TERRAIN_FOREST := 1
+const TERRAIN_CRYSTAL := 2
+const TERRAIN_ORE := 3
+const TERRAIN_VENT := 4
+
+
+static func generate(map_size: Vector2i, seed: int = 0, min_build_radius: int = 25, max_build_radius: int = 40, path_count: int = 3, path_width: int = 8, clearing_noise: int = 45, include_demo_roads: bool = false) -> RefCounted:
+	var rng := RandomNumberGenerator.new()
+	if seed == 0:
+		rng.randomize()
+		seed = rng.randi_range(1, 2147483647)
+		rng.seed = seed
+	else:
+		rng.seed = seed
+
+	min_build_radius = clampi(min_build_radius, 4, maxi(map_size.x, map_size.y) / 2 - 4)
+	max_build_radius = clampi(max_build_radius, min_build_radius, maxi(map_size.x, map_size.y) / 2 - 2)
+	path_count = clampi(path_count, 1, 12)
+	path_width = clampi(path_width, 1, 16)
+	clearing_noise = clampi(clearing_noise, 0, 100)
+
+	var map_data := MapData.new(map_size)
+	map_data.seed = seed
+	map_data.start_tile = map_size / 2
+	map_data.build_radius = min_build_radius
+	map_data.clearing_noise = clearing_noise
+	map_data.path_width = path_width
+
+	_generate_ground(map_data, seed)
+	_carve_player_clearing(map_data, seed, min_build_radius, max_build_radius, clearing_noise)
+	_place_resources(map_data, seed + 991)
+	_carve_exit_paths(map_data, rng, path_count, path_width)
+	if include_demo_roads:
+		_place_demo_roads(map_data)
+	return map_data
+
+
+static func _generate_ground(map_data: RefCounted, seed: int) -> void:
+	var forest_noise := FastNoiseLite.new()
+	forest_noise.seed = seed
+	forest_noise.frequency = 0.055
+	forest_noise.fractal_octaves = 4
+
+	var detail_noise := FastNoiseLite.new()
+	detail_noise.seed = seed + 337
+	detail_noise.frequency = 0.16
+	detail_noise.fractal_octaves = 2
+
+	var max_distance: float = Vector2(map_data.size).length() * 0.5
+	for y in map_data.size.y:
+		for x in map_data.size.x:
+			var tile := Vector2i(x, y)
+			var distance: float = Vector2(tile - map_data.start_tile).length()
+			var forest_bias: float = smoothstep(float(map_data.build_radius) * 0.75, max_distance * 0.82, distance)
+			var forest_value: float = forest_noise.get_noise_2d(float(x), float(y)) + forest_bias
+			var detail_value: float = detail_noise.get_noise_2d(float(x), float(y))
+			var terrain_id := TERRAIN_CLEAR
+
+			if forest_value > 0.32:
+				terrain_id = TERRAIN_FOREST
+			if terrain_id == TERRAIN_FOREST and detail_value > 0.42:
+				terrain_id = TERRAIN_CRYSTAL
+			elif terrain_id == TERRAIN_FOREST and detail_value < -0.48:
+				terrain_id = TERRAIN_CLEAR
+
+			map_data.set_terrain(Vector2i(x, y), terrain_id)
+
+
+static func _carve_player_clearing(map_data: RefCounted, seed: int, min_build_radius: int, max_build_radius: int, clearing_noise: int) -> void:
+	var clearing_shape_noise := FastNoiseLite.new()
+	clearing_shape_noise.seed = seed + 711
+	clearing_shape_noise.frequency = 0.12
+	clearing_shape_noise.fractal_octaves = 2
+
+	var noise_factor: float = float(clearing_noise) / 100.0
+	var radius_span: float = float(max_build_radius - min_build_radius)
+
+	for y in map_data.size.y:
+		for x in map_data.size.x:
+			var tile := Vector2i(x, y)
+			var distance: float = Vector2(tile - map_data.start_tile).length()
+			var edge_noise: float = (clearing_shape_noise.get_noise_2d(float(x), float(y)) + 1.0) * 0.5
+			var local_radius: float = float(min_build_radius) + radius_span * edge_noise * noise_factor
+			if distance <= local_radius:
+				map_data.set_terrain(tile, TERRAIN_CLEAR)
+
+
+static func _carve_exit_paths(map_data: RefCounted, rng: RandomNumberGenerator, path_count: int, path_width: int) -> void:
+	var base_angle: float = rng.randf_range(0.0, TAU)
+	var base_radius: int = _path_width_to_radius(path_width)
+	for path_index in range(path_count):
+		var angle: float = base_angle + TAU * float(path_index) / float(path_count) + rng.randf_range(-0.28, 0.28)
+		var endpoint: Vector2i = _edge_tile_for_angle(map_data, angle)
+		map_data.path_endpoints.append(endpoint)
+		var radius_variation := rng.randi_range(-1, 1) if path_width > 3 else 0
+		_carve_path(map_data, map_data.start_tile, endpoint, maxi(0, base_radius + radius_variation), rng)
+
+
+static func _path_width_to_radius(path_width: int) -> int:
+	if path_width <= 1:
+		return 0
+	return ceili(float(path_width - 1) * 0.5)
+
+
+static func _edge_tile_for_angle(map_data: RefCounted, angle: float) -> Vector2i:
+	var direction: Vector2 = Vector2(cos(angle), sin(angle))
+	var center: Vector2 = Vector2(map_data.start_tile)
+	var max_steps: int = maxi(map_data.size.x, map_data.size.y)
+	var last_inside: Vector2i = map_data.start_tile
+
+	for step in range(max_steps):
+		var point: Vector2 = center + direction * float(step)
+		var tile: Vector2i = Vector2i(roundi(point.x), roundi(point.y))
+		if not map_data.is_inside(tile):
+			return last_inside
+		last_inside = tile
+
+	return last_inside
+
+
+static func _carve_path(map_data: RefCounted, start: Vector2i, end: Vector2i, radius: int, rng: RandomNumberGenerator) -> void:
+	var delta: Vector2i = end - start
+	var steps: int = maxi(abs(delta.x), abs(delta.y))
+	var normal: Vector2 = Vector2(-delta.y, delta.x).normalized()
+	var wobble_noise := FastNoiseLite.new()
+	wobble_noise.seed = map_data.seed + end.x * 13 + end.y * 29
+	wobble_noise.frequency = 0.075
+	wobble_noise.fractal_octaves = 2
+
+	for i in range(steps + 1):
+		var t: float = 0.0 if steps == 0 else float(i) / float(steps)
+		var center: Vector2 = Vector2(start).lerp(Vector2(end), t)
+		var wobble: float = wobble_noise.get_noise_1d(float(i)) * 4.0
+		var tile_center: Vector2i = Vector2i(roundi(center.x + normal.x * wobble), roundi(center.y + normal.y * wobble))
+		_carve_disc(map_data, tile_center, radius + int(abs(wobble) * 0.25))
+
+
+static func _carve_disc(map_data: RefCounted, center: Vector2i, radius: int) -> void:
+	for y in range(center.y - radius, center.y + radius + 1):
+		for x in range(center.x - radius, center.x + radius + 1):
+			var tile := Vector2i(x, y)
+			if map_data.is_inside(tile) and Vector2(tile - center).length() <= float(radius):
+				map_data.set_terrain(tile, TERRAIN_CLEAR)
+
+
+static func _place_resources(map_data: RefCounted, seed: int) -> void:
+	var resource_noise := FastNoiseLite.new()
+	resource_noise.seed = seed
+	resource_noise.frequency = 0.11
+	resource_noise.fractal_octaves = 3
+
+	for y in map_data.size.y:
+		for x in map_data.size.x:
+			var tile := Vector2i(x, y)
+			var distance: float = Vector2(tile - map_data.start_tile).length()
+			if distance < float(map_data.build_radius + 4):
+				continue
+			var n: float = resource_noise.get_noise_2d(float(x), float(y))
+			if n > 0.54:
+				map_data.set_terrain(tile, TERRAIN_ORE)
+			elif n < -0.58:
+				map_data.set_terrain(tile, TERRAIN_VENT)
+
+
+static func _place_demo_roads(map_data: RefCounted) -> void:
+	var center: Vector2i = map_data.start_tile
+	for x in range(center.x - 8, center.x + 9):
+		map_data.set_road(Vector2i(x, center.y))
+	for y in range(center.y - 6, center.y + 7):
+		map_data.set_road(Vector2i(center.x, y))
+	for x in range(center.x, center.x + 10):
+		map_data.set_road(Vector2i(x, center.y + 5))
