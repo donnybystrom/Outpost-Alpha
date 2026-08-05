@@ -2,12 +2,14 @@ extends Node2D
 
 const IsoTileRenderer := preload("res://scripts/iso_tile_renderer.gd")
 const AutoTile := preload("res://scripts/auto_tile.gd")
+const AutoTileAtlas := preload("res://scripts/autotile_atlas.gd")
 
 const TILE_SIZE := Vector2i(32, 16)
 const HALF_TILE := Vector2(TILE_SIZE.x / 2.0, TILE_SIZE.y / 2.0)
 const PAINT_TOOL_NONE := "none"
 const PAINT_TOOL_ROAD := "road"
 const PAINT_TOOL_TERRAIN_PREFIX := "terrain:"
+const PAINT_TOOL_BUILDING_PREFIX := "building:"
 
 var map_data: RefCounted
 var road_atlas: Texture2D
@@ -17,6 +19,9 @@ var paint_tool := PAINT_TOOL_NONE
 var dev_mode: bool = false
 var is_line_painting: bool = false
 var line_preview_tiles: Array[Vector2i] = []
+var placement_feedback: Array[Dictionary] = []
+var selection_rect := Rect2()
+var selection_rect_visible := false
 
 var redraw_requests: int = 0
 var draw_calls: int = 0
@@ -63,12 +68,24 @@ func set_line_preview(next_line_preview_tiles: Array[Vector2i], next_is_line_pai
 	request_redraw("line_preview")
 
 
+func set_placement_feedback(next_placement_feedback: Array[Dictionary]) -> void:
+	placement_feedback = next_placement_feedback.duplicate()
+	request_redraw("placement_feedback")
+
+
 func clear_line_preview() -> void:
 	if line_preview_tiles.is_empty() and not is_line_painting:
 		return
 	line_preview_tiles.clear()
 	is_line_painting = false
+	placement_feedback.clear()
 	request_redraw("clear_line_preview")
+
+
+func set_selection_rect(rect: Rect2, visible: bool) -> void:
+	selection_rect = rect.abs()
+	selection_rect_visible = visible
+	request_redraw("selection_rect")
 
 
 func request_redraw(reason: String) -> void:
@@ -82,10 +99,10 @@ func _draw() -> void:
 	draw_calls += 1
 	last_cells_processed = 0
 
+	_draw_hover_marker()
 	_draw_build_preview()
 	_draw_line_preview()
-	_draw_hover_marker()
-	_draw_selection(selected_tile, Color8(245, 164, 45, 180), 2.0)
+	_draw_selection_rect()
 
 	last_draw_usec = Time.get_ticks_usec() - started
 
@@ -93,31 +110,54 @@ func _draw() -> void:
 func _draw_hover_marker() -> void:
 	if not _is_inside_map(hovered_tile):
 		return
-	if paint_tool != PAINT_TOOL_NONE:
-		return
 
-	_draw_selection(hovered_tile, Color(0.0, 0.0, 0.0, 0.2), 2.0)
+	_draw_selection(hovered_tile, Color(1.0, 0.55, 0.05, 0.10), 2.0)
+
+
+func _should_draw_selected_marker() -> bool:
+	return false
 
 
 func _draw_line_preview() -> void:
-	if line_preview_tiles.is_empty():
+	if not is_line_painting or placement_feedback.is_empty():
 		return
 
-	for tile in line_preview_tiles:
-		_draw_selection(tile, Color8(72, 230, 84, 205), 2.0)
+	for feedback in placement_feedback:
+		_draw_feedback_outline(feedback)
 
 
 func _draw_build_preview() -> void:
 	if paint_tool == PAINT_TOOL_ROAD:
 		if is_line_painting:
-			for tile in line_preview_tiles:
-				_draw_road_preview_tile(tile, _road_preview_mask(tile, line_preview_tiles))
+			for feedback in placement_feedback:
+				var tile: Vector2i = feedback["tile"]
+				if bool(feedback["valid"]):
+					_draw_road_preview_tile(tile, _road_preview_mask(tile, line_preview_tiles))
 		elif _is_inside_map(hovered_tile):
-			var preview_tiles: Array[Vector2i] = [hovered_tile]
-			_draw_road_preview_tile(hovered_tile, _road_preview_mask(hovered_tile, preview_tiles))
-			_draw_selection(hovered_tile, Color8(72, 230, 84, 215), 2.0)
-	elif paint_tool.begins_with(PAINT_TOOL_TERRAIN_PREFIX) and dev_mode and _is_inside_map(hovered_tile):
-		_draw_selection(hovered_tile, Color8(72, 230, 84, 215), 2.0)
+			if placement_feedback.is_empty() or bool(placement_feedback[0]["valid"]):
+				var preview_tiles: Array[Vector2i] = [hovered_tile]
+				_draw_road_preview_tile(hovered_tile, _road_preview_mask(hovered_tile, preview_tiles))
+			_draw_placement_feedback()
+	elif (paint_tool.begins_with(PAINT_TOOL_BUILDING_PREFIX) or (paint_tool.begins_with(PAINT_TOOL_TERRAIN_PREFIX) and dev_mode)) and _is_inside_map(hovered_tile):
+		_draw_placement_feedback()
+
+
+func _draw_placement_feedback() -> void:
+	for feedback in placement_feedback:
+		_draw_feedback_outline(feedback)
+
+
+func _draw_feedback_outline(feedback: Dictionary) -> void:
+	var tile: Vector2i = feedback["tile"]
+	var color: Color = Color8(72, 230, 84, 215) if bool(feedback["valid"]) else Color8(230, 56, 54, 220)
+	_draw_selection(tile, color, 2.0)
+
+
+func _draw_selection_rect() -> void:
+	if not selection_rect_visible:
+		return
+	draw_rect(selection_rect, Color(0.25, 0.85, 0.35, 0.10), true)
+	draw_rect(selection_rect, Color(0.40, 1.0, 0.42, 0.78), false, 1.0)
 
 
 func _draw_road_preview_tile(tile: Vector2i, road_mask: int) -> void:
@@ -130,7 +170,7 @@ func _draw_road_preview_tile(tile: Vector2i, road_mask: int) -> void:
 		draw_colored_polygon(points, Color8(80, 84, 80, 125))
 		return
 
-	var source_rect: Rect2 = Rect2(Vector2(Vector2i(road_mask, IsoTileRenderer.ROAD_ATLAS_ROW) * TILE_SIZE), Vector2(TILE_SIZE))
+	var source_rect: Rect2 = Rect2(Vector2(Vector2i(AutoTileAtlas.road_column(road_mask), IsoTileRenderer.ROAD_ATLAS_ROW) * TILE_SIZE), Vector2(TILE_SIZE))
 	var target_rect: Rect2 = Rect2(map_to_screen(tile) - HALF_TILE, Vector2(TILE_SIZE))
 	draw_texture_rect_region(road_atlas, target_rect, source_rect, Color(1.0, 1.0, 1.0, 0.46))
 

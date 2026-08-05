@@ -6,6 +6,7 @@ var world: IsoWorld
 var camera: Camera2D
 var active: bool = false
 var primary_button_down: bool = false
+var primary_press_viewport_position := Vector2.ZERO
 var conversion_calls: int = 0
 var last_conversion_usec: int = 0
 
@@ -54,20 +55,28 @@ func primary_press_at_viewport(viewport_position: Vector2, line_mode: bool) -> v
 	if not active or world == null:
 		return
 	primary_button_down = true
-	world.primary_press_tile(viewport_to_tile(viewport_position), line_mode)
+	primary_press_viewport_position = viewport_position
+	world.primary_press_world(viewport_to_world(viewport_position), viewport_to_tile(viewport_position), line_mode)
 
 
 func primary_drag_at_viewport(viewport_position: Vector2) -> void:
 	if not active or world == null or not primary_button_down:
 		return
-	world.primary_drag_tile(viewport_to_tile(viewport_position))
+	world.primary_drag_world(viewport_to_world(viewport_position), viewport_to_tile(viewport_position))
 
 
 func primary_release_at_viewport(viewport_position: Vector2) -> void:
 	if not active or world == null:
 		return
 	primary_button_down = false
-	world.primary_release_tile(viewport_to_tile(viewport_position))
+	world.primary_release_world(viewport_to_world(viewport_position), viewport_to_tile(viewport_position))
+
+
+func secondary_press_at_viewport(viewport_position: Vector2) -> void:
+	if not active or world == null:
+		return
+	primary_button_down = false
+	world.secondary_press_world(viewport_to_world(viewport_position), viewport_to_tile(viewport_position))
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -86,6 +95,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				primary_press_at_viewport(mouse_button.position, mouse_button.shift_pressed)
 			else:
 				primary_release_at_viewport(mouse_button.position)
+		elif mouse_button.button_index == MOUSE_BUTTON_RIGHT and mouse_button.pressed:
+			secondary_press_at_viewport(mouse_button.position)
+			get_viewport().set_input_as_handled()
 
 	if event is InputEventKey:
 		var key: InputEventKey = event as InputEventKey

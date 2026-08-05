@@ -16,7 +16,9 @@ Outpost Alpha is an isometric survival/economic RTS about establishing a colony 
 
 ## Current Build Interaction
 
-Sandbox currently exposes road construction as the first player-facing build action. Selecting `Road` in the bottom construction menu lets the player paint roads tile by tile. Road mode shows a translucent road preview and green isometric outline over the tile under the cursor. Holding `Shift` while dragging creates a green isometric preview line; the road tiles are committed when the mouse button is released.
+Sandbox currently exposes road construction and four colony buildings: `oxygen_extractor`, `living_quarters`, `machine_park`, and `milling_plant`. Selecting `Road` in the bottom construction menu lets the player paint roads tile by tile. Road mode shows a translucent road preview and green isometric outline over the tile under the cursor. Holding `Shift` while dragging creates a green isometric preview line; the road tiles are committed when the mouse button is released.
+
+Buildings are a separate layer above terrain. They use footprints, can block road painting, and update colony state without rewriting terrain.
 
 ## Documentation Practice
 
@@ -26,3 +28,6 @@ When gameplay direction changes, add or update a document in `docs/gdd/`. When i
 
 - [World generation](world-generation.md)
 - [Input model](input-model.md)
+- [Sandbox colony loop](sandbox-colony-loop.md)
+- [Rendering and simulation layer model](rendering-layer-model.md)
+- [Tileset workflow](tileset-workflow.md)

@@ -2,7 +2,7 @@ extends SceneTree
 
 const TILE_SIZE := Vector2i(32, 16)
 const ATLAS_COLUMNS := 16
-const ATLAS_ROWS := 2
+const ATLAS_ROWS := 3
 const OUTPUT_PATH := "res://assets/tiles/terrain_32x16.png"
 
 const ROAD_NORTH := 1
@@ -31,6 +31,7 @@ func _initialize() -> void:
 
 	for mask in range(16):
 		_draw_road_tile(image, mask)
+		_draw_mountain_tile(image, mask)
 
 	var output_path: String = ProjectSettings.globalize_path(OUTPUT_PATH)
 	var error: Error = image.save_png(output_path)
@@ -100,6 +101,40 @@ func _draw_road_tile(image: Image, mask: int) -> void:
 		_set_pixel_safe(image, offset.x + point.x, offset.y + point.y, road_edge)
 
 
+func _draw_mountain_tile(image: Image, mask: int) -> void:
+	var offset: Vector2i = Vector2i(mask * TILE_SIZE.x, TILE_SIZE.y * 2)
+	var palette: Dictionary = {
+		"base": Color8(66, 66, 62),
+		"shade": Color8(36, 38, 37),
+		"accent": Color8(126, 132, 126),
+	}
+	_fill_diamond(image, offset, Color8(40, 44, 39), Color8(29, 32, 30), 80 + mask)
+	_draw_diamond_outline(image, offset, Color8(12, 14, 13, 220))
+
+	var north_open: bool = (mask & ROAD_NORTH) == 0
+	var east_open: bool = (mask & ROAD_EAST) == 0
+	var south_open: bool = (mask & ROAD_SOUTH) == 0
+	var west_open: bool = (mask & ROAD_WEST) == 0
+	var peak: Vector2i = Vector2i(16, 2)
+	var left_base: Vector2i = Vector2i(6 if west_open else 1, 10)
+	var right_base: Vector2i = Vector2i(26 if east_open else 31, 10)
+	var lower_base: Vector2i = Vector2i(16, 15 if south_open else 13)
+
+	_fill_triangle(image, offset, peak, left_base, lower_base, palette["shade"], 81 + mask)
+	_fill_triangle(image, offset, peak, lower_base, right_base, palette["base"], 97 + mask)
+	_draw_line(image, offset, peak, lower_base, palette["accent"])
+	if north_open:
+		_draw_line(image, offset, Vector2i(11, 5), Vector2i(21, 5), palette["accent"].lightened(0.18))
+	if west_open:
+		_draw_line(image, offset, peak, left_base, Color8(20, 22, 21))
+	if east_open:
+		_draw_line(image, offset, peak, right_base, Color8(20, 22, 21))
+
+	for point in [Vector2i(12, 9), Vector2i(18, 7), Vector2i(21, 11), Vector2i(9, 11)]:
+		if _hash_noise(point.x, point.y, mask) > 0.28:
+			_draw_ore_dot(image, offset, point, Color8(184, 119, 46))
+
+
 func _fill_diamond(image: Image, offset: Vector2i, base: Color, shade: Color, seed: int) -> void:
 	var center: Vector2 = Vector2(TILE_SIZE.x / 2.0 - 0.5, TILE_SIZE.y / 2.0 - 0.5)
 	for y in TILE_SIZE.y:
@@ -164,6 +199,38 @@ func _draw_disc(image: Image, offset: Vector2i, origin: Vector2i, radius: int, c
 		for x in range(-radius, radius + 1):
 			if Vector2(x, y).length() <= radius:
 				_set_pixel_safe(image, offset.x + origin.x + x, offset.y + origin.y + y, color)
+
+
+func _fill_triangle(image: Image, offset: Vector2i, a: Vector2i, b: Vector2i, c: Vector2i, color: Color, seed: int) -> void:
+	var min_x: int = mini(a.x, mini(b.x, c.x))
+	var max_x: int = maxi(a.x, maxi(b.x, c.x))
+	var min_y: int = mini(a.y, mini(b.y, c.y))
+	var max_y: int = maxi(a.y, maxi(b.y, c.y))
+	for y in range(min_y, max_y + 1):
+		for x in range(min_x, max_x + 1):
+			var point := Vector2i(x, y)
+			if _point_in_triangle(point, a, b, c):
+				var pixel_color: Color = color
+				if _hash_noise(x, y, seed) > 0.78:
+					pixel_color = color.lightened(0.12)
+				_set_pixel_safe(image, offset.x + x, offset.y + y, pixel_color)
+
+
+func _point_in_triangle(point: Vector2i, a: Vector2i, b: Vector2i, c: Vector2i) -> bool:
+	var p := Vector2(point)
+	var pa := Vector2(a)
+	var pb := Vector2(b)
+	var pc := Vector2(c)
+	var d1: float = _triangle_sign(p, pa, pb)
+	var d2: float = _triangle_sign(p, pb, pc)
+	var d3: float = _triangle_sign(p, pc, pa)
+	var has_negative: bool = d1 < 0.0 or d2 < 0.0 or d3 < 0.0
+	var has_positive: bool = d1 > 0.0 or d2 > 0.0 or d3 > 0.0
+	return not (has_negative and has_positive)
+
+
+func _triangle_sign(p1: Vector2, p2: Vector2, p3: Vector2) -> float:
+	return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y)
 
 
 func _draw_thick_line(image: Image, offset: Vector2i, start: Vector2i, end: Vector2i, radius: int, color: Color) -> void:

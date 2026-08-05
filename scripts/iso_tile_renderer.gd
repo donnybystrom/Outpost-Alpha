@@ -1,8 +1,12 @@
 extends Node2D
 
+const AutoTile := preload("res://scripts/auto_tile.gd")
+const AutoTileAtlas := preload("res://scripts/autotile_atlas.gd")
+
 const TILE_SIZE := Vector2i(32, 16)
 const HALF_TILE := Vector2(TILE_SIZE.x / 2.0, TILE_SIZE.y / 2.0)
 const ATLAS_PATH := "res://assets/tiles/terrain_32x16.png"
+const TERRAIN_MOUNTAIN := 5
 const TERRAIN_ATLAS := {
 	0: Vector2i(0, 0),
 	1: Vector2i(1, 0),
@@ -11,6 +15,7 @@ const TERRAIN_ATLAS := {
 	4: Vector2i(4, 0),
 }
 const ROAD_ATLAS_ROW := 1
+const MOUNTAIN_ATLAS_ROW := 2
 
 var map_data: RefCounted
 var atlas: Texture2D
@@ -85,7 +90,7 @@ func _bake_map_texture() -> void:
 		for x in map_data.size.x:
 			var tile: Vector2i = Vector2i(x, y)
 			var terrain_id: int = map_data.get_terrain(tile)
-			var atlas_coords: Vector2i = TERRAIN_ATLAS.get(terrain_id, Vector2i.ZERO)
+			var atlas_coords: Vector2i = _terrain_atlas_coords(tile, terrain_id)
 			var source_rect: Rect2i = Rect2i(atlas_coords * TILE_SIZE, TILE_SIZE)
 			var target: Vector2i = Vector2i((map_to_screen(tile) - HALF_TILE - cached_map_offset).round())
 			image.blend_rect(atlas_image, source_rect, target)
@@ -93,6 +98,12 @@ func _bake_map_texture() -> void:
 
 	cached_map_texture = ImageTexture.create_from_image(image)
 	last_bake_usec = Time.get_ticks_usec() - started
+
+
+func _terrain_atlas_coords(tile: Vector2i, terrain_id: int) -> Vector2i:
+	if terrain_id == TERRAIN_MOUNTAIN:
+		return Vector2i(AutoTileAtlas.mountain_column(AutoTile.same_terrain_mask(map_data, tile)), MOUNTAIN_ATLAS_ROW)
+	return TERRAIN_ATLAS.get(terrain_id, Vector2i.ZERO)
 
 
 func _map_pixel_bounds() -> Rect2i:

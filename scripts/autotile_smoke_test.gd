@@ -27,11 +27,32 @@ func _initialize() -> void:
 	map_data.set_road(corner + Vector2i(0, 1))
 	_assert_mask(map_data, corner, 6, "east-south road corner")
 
+	var tee := Vector2i(1, 5)
+	map_data.set_road(tee)
+	map_data.set_road(tee + Vector2i(0, -1))
+	map_data.set_road(tee + Vector2i(1, 0))
+	map_data.set_road(tee + Vector2i(-1, 0))
+	_assert_mask(map_data, tee, 11, "north-east-west road tee")
+
+	var mountain := Vector2i(4, 5)
+	map_data.set_terrain(mountain, 5)
+	map_data.set_terrain(mountain + Vector2i(0, -1), 5)
+	map_data.set_terrain(mountain + Vector2i(-1, 0), 5)
+	map_data.set_terrain(mountain + Vector2i(1, 0), 1)
+	_assert_same_terrain_mask(map_data, mountain, 9, "mountain massif north-west connection")
+
 	quit(0)
 
 
 func _assert_mask(map_data: RefCounted, tile: Vector2i, expected: int, label: String) -> void:
 	var actual := AutoTile.road_mask(map_data, tile)
+	if actual != expected:
+		push_error("%s expected mask %s but got %s" % [label, expected, actual])
+		quit(1)
+
+
+func _assert_same_terrain_mask(map_data: RefCounted, tile: Vector2i, expected: int, label: String) -> void:
+	var actual := AutoTile.same_terrain_mask(map_data, tile)
 	if actual != expected:
 		push_error("%s expected mask %s but got %s" % [label, expected, actual])
 		quit(1)

@@ -7,6 +7,7 @@ const TERRAIN_FOREST := 1
 const TERRAIN_CRYSTAL := 2
 const TERRAIN_ORE := 3
 const TERRAIN_VENT := 4
+const TERRAIN_MOUNTAIN := 5
 
 
 static func generate(map_size: Vector2i, seed: int = 0, min_build_radius: int = 25, max_build_radius: int = 40, path_count: int = 3, path_width: int = 8, clearing_noise: int = 45, include_demo_roads: bool = false) -> RefCounted:
@@ -32,6 +33,7 @@ static func generate(map_size: Vector2i, seed: int = 0, min_build_radius: int = 
 	map_data.path_width = path_width
 
 	_generate_ground(map_data, seed)
+	_place_mountain_massifs(map_data, seed + 541)
 	_carve_player_clearing(map_data, seed, min_build_radius, max_build_radius, clearing_noise)
 	_place_resources(map_data, seed + 991)
 	_carve_exit_paths(map_data, rng, path_count, path_width)
@@ -69,6 +71,29 @@ static func _generate_ground(map_data: RefCounted, seed: int) -> void:
 				terrain_id = TERRAIN_CLEAR
 
 			map_data.set_terrain(Vector2i(x, y), terrain_id)
+
+
+static func _place_mountain_massifs(map_data: RefCounted, seed: int) -> void:
+	var mountain_noise := FastNoiseLite.new()
+	mountain_noise.seed = seed
+	mountain_noise.frequency = 0.052
+	mountain_noise.fractal_octaves = 4
+
+	var ridge_noise := FastNoiseLite.new()
+	ridge_noise.seed = seed + 229
+	ridge_noise.frequency = 0.12
+	ridge_noise.fractal_octaves = 2
+
+	var max_distance: float = Vector2(map_data.size).length() * 0.5
+	for y in map_data.size.y:
+		for x in map_data.size.x:
+			var tile := Vector2i(x, y)
+			var distance: float = Vector2(tile - map_data.start_tile).length()
+			var wilderness_bias: float = smoothstep(float(map_data.build_radius) * 0.9, max_distance * 0.72, distance)
+			var mountain_value: float = mountain_noise.get_noise_2d(float(x), float(y)) + wilderness_bias * 0.36
+			var ridge_value: float = ridge_noise.get_noise_2d(float(x), float(y))
+			if mountain_value > 0.43 and ridge_value > -0.25:
+				map_data.set_terrain(tile, TERRAIN_MOUNTAIN)
 
 
 static func _carve_player_clearing(map_data: RefCounted, seed: int, min_build_radius: int, max_build_radius: int, clearing_noise: int) -> void:
@@ -161,9 +186,9 @@ static func _place_resources(map_data: RefCounted, seed: int) -> void:
 			if distance < float(map_data.build_radius + 4):
 				continue
 			var n: float = resource_noise.get_noise_2d(float(x), float(y))
-			if n > 0.54:
+			if n > 0.54 and map_data.get_terrain(tile) != TERRAIN_MOUNTAIN:
 				map_data.set_terrain(tile, TERRAIN_ORE)
-			elif n < -0.58:
+			elif n < -0.58 and map_data.get_terrain(tile) != TERRAIN_MOUNTAIN:
 				map_data.set_terrain(tile, TERRAIN_VENT)
 
 

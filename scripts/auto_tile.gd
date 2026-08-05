@@ -5,6 +5,8 @@ const EAST := 2
 const SOUTH := 4
 const WEST := 8
 
+# These are map-space cardinal neighbors. With the current isometric projection
+# they appear on screen as NE, SE, SW, and NW respectively.
 const CARDINAL_DIRECTIONS := {
 	NORTH: Vector2i(0, -1),
 	EAST: Vector2i(1, 0),

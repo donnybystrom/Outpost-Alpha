@@ -68,6 +68,7 @@ func _initialize() -> void:
 
 	_assert_inner_build_area_is_clear(map_data)
 	_assert_outer_forest_exists(map_data)
+	_assert_outer_mountains_exist(map_data)
 	quit(0)
 
 
@@ -96,6 +97,28 @@ func _assert_outer_forest_exists(map_data: RefCounted) -> void:
 
 	if forest_count < 800:
 		push_error("Generated map does not contain enough outer forest: %s tiles." % forest_count)
+		quit(1)
+
+
+func _assert_outer_mountains_exist(map_data: RefCounted) -> void:
+	var forest_count := 0
+	var mountain_count := 0
+	for y in map_data.size.y:
+		for x in map_data.size.x:
+			var tile := Vector2i(x, y)
+			var distance: float = Vector2(tile - map_data.start_tile).length()
+			if distance > float(map_data.build_radius + 6):
+				var terrain_id: int = map_data.get_terrain(tile)
+				if terrain_id == 1 or terrain_id == 2:
+					forest_count += 1
+				elif terrain_id == 5:
+					mountain_count += 1
+
+	if mountain_count < 250:
+		push_error("Generated map does not contain enough outer mountain massif: %s tiles." % mountain_count)
+		quit(1)
+	if mountain_count < int(float(forest_count) * 0.25) or mountain_count > int(float(forest_count) * 0.85):
+		push_error("Mountain massifs should be roughly half as common as forest. Forest=%s mountain=%s." % [forest_count, mountain_count])
 		quit(1)
 
 

@@ -1,6 +1,7 @@
 extends Node2D
 
 const AutoTile := preload("res://scripts/auto_tile.gd")
+const AutoTileAtlas := preload("res://scripts/autotile_atlas.gd")
 
 const TILE_SIZE := Vector2i(32, 16)
 const HALF_TILE := Vector2(TILE_SIZE.x / 2.0, TILE_SIZE.y / 2.0)
@@ -116,13 +117,14 @@ func _update_dirty_road_tiles(tiles: Array[Vector2i]) -> void:
 		_bake_road_texture()
 		return
 
-	for tile in tiles:
+	var clear_tiles: Array[Vector2i] = _valid_unique_tiles(tiles)
+	var repaint_tiles: Array[Vector2i] = _road_tiles_overlapping_clear_tiles(clear_tiles)
+
+	for tile in clear_tiles:
 		if not map_data.is_inside(tile):
 			continue
 		_clear_road_tile(tile)
-	for tile in tiles:
-		if not map_data.is_inside(tile):
-			continue
+	for tile in repaint_tiles:
 		if map_data.has_road(tile):
 			_blit_road_tile(tile)
 		last_cells_processed += 1
@@ -138,12 +140,42 @@ func _clear_road_tile(tile: Vector2i) -> void:
 
 func _blit_road_tile(tile: Vector2i) -> void:
 	var road_mask: int = AutoTile.road_mask(map_data, tile)
-	var source_rect: Rect2i = Rect2i(Vector2i(road_mask, ROAD_ATLAS_ROW) * TILE_SIZE, TILE_SIZE)
+	var source_rect: Rect2i = Rect2i(Vector2i(AutoTileAtlas.road_column(road_mask), ROAD_ATLAS_ROW) * TILE_SIZE, TILE_SIZE)
 	cached_road_image.blend_rect(atlas_image, source_rect, _tile_target_position(tile))
 
 
 func _tile_target_position(tile: Vector2i) -> Vector2i:
 	return Vector2i((map_to_screen(tile) - HALF_TILE - cached_road_offset).round())
+
+
+func _road_sprite_rect(tile: Vector2i) -> Rect2i:
+	return Rect2i(_tile_target_position(tile), TILE_SIZE)
+
+
+func _valid_unique_tiles(tiles: Array[Vector2i]) -> Array[Vector2i]:
+	var unique_tiles: Array[Vector2i] = []
+	for tile in tiles:
+		if map_data != null and map_data.is_inside(tile) and not unique_tiles.has(tile):
+			unique_tiles.append(tile)
+	return unique_tiles
+
+
+func _road_tiles_overlapping_clear_tiles(clear_tiles: Array[Vector2i]) -> Array[Vector2i]:
+	var repaint_tiles: Array[Vector2i] = []
+	for clear_tile in clear_tiles:
+		var clear_rect: Rect2i = _road_sprite_rect(clear_tile)
+		for y in range(clear_tile.y - 2, clear_tile.y + 3):
+			for x in range(clear_tile.x - 2, clear_tile.x + 3):
+				var candidate := Vector2i(x, y)
+				if not map_data.is_inside(candidate):
+					continue
+				if not map_data.has_road(candidate):
+					continue
+				if repaint_tiles.has(candidate):
+					continue
+				if _road_sprite_rect(candidate).intersects(clear_rect):
+					repaint_tiles.append(candidate)
+	return repaint_tiles
 
 
 func _affected_road_tiles(tile: Vector2i) -> Array[Vector2i]:

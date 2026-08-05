@@ -26,7 +26,7 @@ Minimal Godot 4.7 / GDScript prototype for an isometric 2D RTS foundation.
 - Left click: select tile.
 - `G`: toggle grid overlay.
 - ` / §: toggle the in-game admin panel.
-- Map hover: shows a faint black isometric outline when no build tool is active.
+- Map hover: always shows a quiet 10% opacity orange isometric outline.
 - Construction menu `Road`: paint roads. Hovering a tile in road mode shows a translucent road preview and green isometric target outline; hold `Shift` while dragging to preview and commit a straight road line on mouse release.
 
 ## Notes
@@ -43,7 +43,7 @@ Ground rendering is data-driven:
 2. `IsoTileRenderer` reads terrain data and bakes the terrain layer into one cached map texture.
 3. `IsoRoadRenderer` bakes roads into one transparent road texture. A road edit only updates the placed tile plus its four cardinal neighbors because those are the only autotile masks affected.
 4. `IsoGridLayer` bakes the static grid into one transparent grid texture so hover changes do not redraw the full grid.
-5. `IsoOverlayLayer` draws hover, selection, road preview, and line preview as O(1) dynamic overlay work.
+5. `IsoOverlayLayer` draws hover, road preview, and line preview as O(1) dynamic overlay work.
 6. `IsoWorld` owns map commands and temporary Dev Mode demo objects above the static layers.
 
 The debug HUD abbreviates render diagnostics per layer:

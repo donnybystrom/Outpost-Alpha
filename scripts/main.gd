@@ -22,13 +22,20 @@ var main_menu_root: Control
 var sandbox_root: Control
 var game_hud_root: Control
 var status_label: Label
+var objective_label: Label
+var colony_label: Label
 var viewport_label: Label
 var performance_label: Label
 var hud_panel: PanelContainer
+var sharon_panel: PanelContainer
 var game_title_label: Label
 var construction_panel: PanelContainer
 var dev_tools_row: HBoxContainer
 var road_tool_button: Button
+var oxygen_extractor_button: Button
+var living_quarters_button: Button
+var machine_park_button: Button
+var milling_plant_button: Button
 var tool_buttons: Array[Button] = []
 var paths_spin_box: SpinBox
 var path_width_spin_box: SpinBox
@@ -324,7 +331,7 @@ func _build_game_hud() -> void:
 
 	hud_panel = PanelContainer.new()
 	hud_panel.name = "StatusPanel"
-	hud_panel.custom_minimum_size = Vector2(440, 220)
+	hud_panel.custom_minimum_size = Vector2(440, 300)
 	game_hud_root.add_child(hud_panel)
 
 	var margin: MarginContainer = MarginContainer.new()
@@ -345,6 +352,24 @@ func _build_game_hud() -> void:
 	status_label = Label.new()
 	status_label.text = ""
 	box.add_child(status_label)
+
+	objective_label = Label.new()
+	objective_label.text = ""
+	objective_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(objective_label)
+
+	colony_label = Label.new()
+	colony_label.text = ""
+	colony_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(colony_label)
+
+	var roles_row: HBoxContainer = HBoxContainer.new()
+	roles_row.add_theme_constant_override("separation", 6)
+	box.add_child(roles_row)
+	_add_role_button(roles_row, "Digger -", "digger", -1)
+	_add_role_button(roles_row, "Digger +", "digger", 1)
+	_add_role_button(roles_row, "Inf -", "infantry", -1)
+	_add_role_button(roles_row, "Inf +", "infantry", 1)
 
 	viewport_label = Label.new()
 	viewport_label.text = ""
@@ -384,6 +409,10 @@ func _build_construction_menu() -> void:
 	build_row.add_theme_constant_override("separation", 8)
 	box.add_child(build_row)
 
+	oxygen_extractor_button = _add_tool_button(build_row, "Oxygen", "building:oxygen_extractor")
+	living_quarters_button = _add_tool_button(build_row, "Living", "building:living_quarters")
+	machine_park_button = _add_tool_button(build_row, "Machines", "building:machine_park")
+	milling_plant_button = _add_tool_button(build_row, "Milling", "building:milling_plant")
 	road_tool_button = _add_tool_button(build_row, "Road", "road")
 
 	dev_tools_row = HBoxContainer.new()
@@ -395,6 +424,47 @@ func _build_construction_menu() -> void:
 	_add_tool_button(dev_tools_row, "Crystal", "terrain:2")
 	_add_tool_button(dev_tools_row, "Ore", "terrain:3")
 	_add_tool_button(dev_tools_row, "Vent", "terrain:4")
+	_add_tool_button(dev_tools_row, "Mountain", "terrain:5")
+
+	_build_sharon_briefing()
+
+
+func _build_sharon_briefing() -> void:
+	sharon_panel = PanelContainer.new()
+	sharon_panel.name = "SharonBriefing"
+	sharon_panel.visible = false
+	sharon_panel.custom_minimum_size = Vector2(460, 220)
+	game_hud_root.add_child(sharon_panel)
+
+	var margin: MarginContainer = MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 16)
+	margin.add_theme_constant_override("margin_top", 14)
+	margin.add_theme_constant_override("margin_right", 16)
+	margin.add_theme_constant_override("margin_bottom", 14)
+	sharon_panel.add_child(margin)
+
+	var box: VBoxContainer = VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	margin.add_child(box)
+
+	var speaker: Label = Label.new()
+	speaker.text = "SHARON // MISSION CONTROL"
+	box.add_child(speaker)
+
+	var message: Label = Label.new()
+	message.text = "You made planetfall. Good. This colony is now our best chance to keep humanity alive.\n\nYour reserve oxygen will last only a few days. Build an Oxygen Extractor first. One module can support up to 5 colonists."
+	message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(message)
+
+	var button_row: HBoxContainer = HBoxContainer.new()
+	button_row.alignment = BoxContainer.ALIGNMENT_END
+	box.add_child(button_row)
+
+	var dismiss_button: Button = Button.new()
+	dismiss_button.text = "Begin"
+	dismiss_button.custom_minimum_size = Vector2(96, 34)
+	dismiss_button.pressed.connect(_dismiss_sharon_briefing)
+	button_row.add_child(dismiss_button)
 
 
 func _add_tool_button(parent: HBoxContainer, label_text: String, tool_id: String) -> Button:
@@ -406,6 +476,15 @@ func _add_tool_button(parent: HBoxContainer, label_text: String, tool_id: String
 	button.pressed.connect(_select_build_tool.bind(tool_id))
 	parent.add_child(button)
 	tool_buttons.append(button)
+	return button
+
+
+func _add_role_button(parent: HBoxContainer, label_text: String, role: String, delta: int) -> Button:
+	var button: Button = Button.new()
+	button.text = label_text
+	button.custom_minimum_size = Vector2(74, 28)
+	button.pressed.connect(_change_role_assignment.bind(role, delta))
+	parent.add_child(button)
 	return button
 
 
@@ -436,6 +515,8 @@ func _show_main_menu() -> void:
 	main_menu_root.visible = true
 	sandbox_root.visible = false
 	game_hud_root.visible = false
+	_set_sharon_briefing_visible(false)
+	_sync_debug_hud_visibility()
 	_set_world_active(false)
 	_queue_responsive_layout()
 
@@ -459,6 +540,8 @@ func _start_sandbox(next_dev_mode: bool = false) -> void:
 	_sync_game_mode_ui()
 	_select_build_tool("none")
 	_on_world_tile_changed(world.selected_tile, "Ready")
+	_set_sharon_briefing_visible(not is_dev_mode)
+	_sync_debug_hud_visibility()
 	_queue_responsive_layout()
 
 
@@ -475,6 +558,8 @@ func _ensure_world() -> void:
 	world.configure_mode(is_dev_mode, is_dev_mode)
 	add_child(world)
 	world.tile_changed.connect(_on_world_tile_changed)
+	world.colony_changed.connect(_on_colony_changed)
+	world.paint_tool_changed.connect(_sync_tool_buttons)
 
 	camera = IsoCamera.new()
 	camera.name = "IsoCamera"
@@ -528,6 +613,7 @@ func _set_admin_panel_visible(visible: bool) -> void:
 		return
 	admin_panel_visible = visible
 	sandbox_root.visible = admin_panel_visible
+	_sync_debug_hud_visibility()
 	_queue_responsive_layout()
 
 
@@ -550,14 +636,45 @@ func _is_admin_toggle_key(event: InputEventKey) -> bool:
 func _select_build_tool(tool_id: String) -> void:
 	if world != null:
 		world.set_paint_tool(tool_id)
+	_sync_tool_buttons(tool_id)
+
+
+func _sync_tool_buttons(tool_id: String) -> void:
 	for button in tool_buttons:
 		button.button_pressed = button.get_meta("tool_id", "") == tool_id
+
+
+func _change_role_assignment(role: String, delta: int) -> void:
+	if world == null:
+		return
+	if role == "digger":
+		world.change_digger_operators(delta)
+	elif role == "infantry":
+		world.change_infantry(delta)
 
 
 func _sync_game_mode_ui() -> void:
 	game_title_label.text = "OUTPOST ALPHA - DEV MODE" if is_dev_mode else "OUTPOST ALPHA - SANDBOX"
 	dev_tools_row.visible = is_dev_mode
-	construction_panel.custom_minimum_size = Vector2(660, 104) if is_dev_mode else Vector2(220, 64)
+	construction_panel.custom_minimum_size = Vector2(760, 104) if is_dev_mode else Vector2(600, 64)
+	_sync_debug_hud_visibility()
+
+
+func _sync_debug_hud_visibility() -> void:
+	if hud_panel == null:
+		return
+	hud_panel.visible = app_state == AppState.IN_GAME and (is_dev_mode or admin_panel_visible)
+
+
+func _dismiss_sharon_briefing() -> void:
+	_set_sharon_briefing_visible(false)
+
+
+func _set_sharon_briefing_visible(visible: bool) -> void:
+	if sharon_panel == null:
+		return
+	sharon_panel.visible = visible
+	_queue_responsive_layout()
 
 
 func _queue_responsive_layout() -> void:
@@ -605,8 +722,16 @@ func _layout_game_hud(viewport_size: Vector2) -> void:
 	var logical_size: Vector2 = viewport_size / scale_factor
 	var panel_width: float = minf(HUD_MAX_WIDTH, logical_size.x - HUD_MARGIN * 2.0)
 	hud_panel.position = Vector2(HUD_MARGIN, HUD_MARGIN)
-	hud_panel.custom_minimum_size = Vector2(panel_width, 230)
-	hud_panel.size = Vector2(panel_width, 230)
+	hud_panel.custom_minimum_size = Vector2(panel_width, 300)
+	hud_panel.size = Vector2(panel_width, 300)
+
+	if sharon_panel != null:
+		var briefing_size: Vector2 = Vector2(minf(520.0, logical_size.x - HUD_MARGIN * 2.0), 240.0)
+		sharon_panel.position = Vector2(
+			logical_size.x - briefing_size.x - HUD_MARGIN,
+			HUD_MARGIN
+		)
+		sharon_panel.size = briefing_size
 
 	var construction_size: Vector2 = construction_panel.custom_minimum_size
 	construction_size.x = minf(construction_size.x, logical_size.x - HUD_MARGIN * 2.0)
@@ -659,9 +784,17 @@ func _on_world_tile_changed(tile: Vector2i, terrain_name: String) -> void:
 	]
 
 
+func _on_colony_changed(summary_lines: Array[String]) -> void:
+	if colony_label == null:
+		return
+	colony_label.text = "\n".join(summary_lines)
+	if objective_label != null and world != null and world.colony_state != null:
+		objective_label.text = "Objective: %s" % world.colony_state.get_primary_objective()
+
+
 func _format_render_diagnostics(diagnostics: Dictionary) -> String:
 	var parts: Array[String] = []
-	for layer_name in ["terrain", "roads", "grid", "overlay", "world"]:
+	for layer_name in ["terrain", "roads", "buildings", "units", "grid", "overlay", "world"]:
 		var layer: Dictionary = diagnostics.get(layer_name, {})
 		if layer.is_empty():
 			continue

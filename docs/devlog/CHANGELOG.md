@@ -9,9 +9,14 @@
 - Fixed full-screen HUD input capture so map clicks reach the isometric world while in build mode.
 - Fixed background viewport fill input capture so it cannot block map hover/click events.
 - Added `MapInputController` to separate viewport input, camera-aware coordinate conversion, and world commands.
-- Added faint black default hover outline for map cells when no build tool is active.
+- Changed map hover to always show a quiet 10% opacity orange isometric outline, replacing the strong clicked-tile selection outline.
 - Added Road hover preview with translucent road art and green isometric target outline.
+- Added per-tile placement validation feedback so valid placement cells render green and blocked cells render red.
 - Added Shift-drag road-line preview with green isometric tile outlines and commit-on-release behavior.
+- Changed road line placement and fast road dragging to create cardinally connected tile paths so autotile masks pick correct corners and T-junctions.
+- Fixed road dirty-texture updates so clearing overlapping isometric sprite rects repaints neighboring road sprites instead of clipping them.
+- Added an explicit autotile atlas contract and mask-to-column mapping so generated or hand-drawn road/mountain sprites can use a non-identity order.
+- Added an AI-sheet mountain import tool and replaced the generated mountain row with cropped terrain-inspired massif sprites.
 - Added FPS/frame-time display to the debug HUD.
 - Split terrain, roads, and grid into separate render layers to avoid full-grid redraws on hover and full-terrain redraws on road edits.
 - Added `IsoOverlayLayer` so hover, selection, road preview, and line preview redraw separately from static map layers.
@@ -19,6 +24,22 @@
 - Added input conversion timing to the debug HUD.
 - Baked terrain and grid into cached textures to avoid thousands of per-frame tile draw calls.
 - Changed road rendering to a cached transparent road texture with dirty updates limited to the edited road tile and its four cardinal neighbors.
+- Added generated mountain massifs as mineable ground terrain, with adaptive neighbor-mask sprites in the terrain atlas.
+- Added initial sandbox colony state with population, idle people, digger operators, infantry, and placeholder resources.
+- Added `BuildingLayer` so colony buildings render above terrain/roads without rewriting the terrain layer.
+- Added sandbox construction buttons for `oxygen_extractor`, `living_quarters`, `machine_park`, `milling_plant`, and `road`.
+- Added Sharon's opening sandbox briefing and the first oxygen-survival objective.
+- Added `oxygen_extractor`, supporting oxygen for up to 5 colonists.
+- Added right-click cancellation for active placement tools, including roads and buildings.
+- Hid the yellow selected-tile marker while a building placement tool is active.
+- Added immediate role reassignment controls for digger operators and infantry.
+- Added visible worker units, worker movement commands, and cardinal tile pathfinding with forest/mountain/building blockers.
+- Added road movement cost so workers move 30% faster on roads and pathfinding proportionally prefers road routes.
+- Added drag-selection for workers, left-click selection clearing, right-click move commands, and formation-slot move orders so workers spread around their destination.
+- Added unit render diagnostics to the debug HUD.
+- Documented the MVP colony loop and explicit layer model in `docs/gdd/sandbox-colony-loop.md`.
+- Documented the rendering/simulation layer split for ground, buildings, environment objects, units, and overlays.
+- Documented MVP tileset layout and future mask-to-atlas configuration workflow.
 - Made the world-generation admin panel hidden by default and toggleable with ` / §.
 - Added sandbox admin/settings panel with World, Raids, and Loot categories.
 - Moved world generation controls into the admin panel's World tab.
