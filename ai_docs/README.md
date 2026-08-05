@@ -62,16 +62,16 @@ The hidden admin panel has a `World` category for the current procedural control
 
 Current atlas slots are 32x16 pixels:
 
-| Atlas X | Terrain                    |
-| ------- | -------------------------- |
-| 0       | Basalt plain               |
-| 1       | Alien scrub                |
-| 2       | Crystal growth             |
-| 3       | Ore ridge                  |
-| 4       | Geothermal vent            |
-| 5       | Road placeholder           |
-| 6       | Utility/plate placeholder  |
-| 7       | Reserved/debug placeholder |
+| Atlas X | Terrain |
+| --- | --- |
+| 0 | Basalt plain |
+| 1 | Alien scrub |
+| 2 | Crystal growth |
+| 3 | Ore ridge |
+| 4 | Geothermal vent |
+| 5 | Road placeholder |
+| 6 | Utility/plate placeholder |
+| 7 | Reserved/debug placeholder |
 
 Regenerate the MVP sheet with:
 
@@ -81,12 +81,12 @@ godot --headless --path /Users/donnybystrom/code/outpost-alpha --script res://to
 
 Road autotiles use atlas row 1. Atlas X is the 4-bit cardinal neighbor mask:
 
-| Bit | Direction | Offset            |
-| --- | --------- | ----------------- |
-| 1   | North     | `Vector2i(0, -1)` |
-| 2   | East      | `Vector2i(1, 0)`  |
-| 4   | South     | `Vector2i(0, 1)`  |
-| 8   | West      | `Vector2i(-1, 0)` |
+| Bit | Direction | Offset |
+| --- | --- | --- |
+| 1 | North | `Vector2i(0, -1)` |
+| 2 | East | `Vector2i(1, 0)` |
+| 4 | South | `Vector2i(0, 1)` |
+| 8 | West | `Vector2i(-1, 0)` |
 
 Examples: `5` is north+south, `10` is east+west, `15` is a four-way crossing.
 
