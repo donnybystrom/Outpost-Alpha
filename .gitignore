@@ -5,3 +5,5 @@ export_presets.cfg
 *.tmp
 *.translation
 *.remap
+
+.DS_Store
