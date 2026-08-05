@@ -11,3 +11,4 @@ Open this folder in Godot:
 The current slice focuses on the first technical milestone: rendering and navigating a 32x16 sprite-based isometric grid.
 
 See `docs/README.md` for controls and implementation notes.
+# Outpost-Alpha
