@@ -2,10 +2,13 @@ extends Node2D
 
 const AutoTile := preload("res://scripts/auto_tile.gd")
 const AutoTileAtlas := preload("res://scripts/autotile_atlas.gd")
+const TERRAIN_ATLAS_TEXTURE: Texture2D = preload(
+	"res://assets/tiles/terrain_32x16.png"
+)
 
 const TILE_SIZE := Vector2i(32, 16)
 const HALF_TILE := Vector2(TILE_SIZE.x / 2.0, TILE_SIZE.y / 2.0)
-const ATLAS_PATH := "res://assets/tiles/terrain_32x16.png"
+
 const TERRAIN_MOUNTAIN := 5
 const TERRAIN_ATLAS := {
 	0: Vector2i(0, 0),
@@ -32,21 +35,25 @@ var last_redraw_reason: String = ""
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	atlas_image = _load_atlas_image()
-	if atlas_image != null:
-		atlas = ImageTexture.create_from_image(atlas_image)
+
+	atlas = TERRAIN_ATLAS_TEXTURE
+	atlas_image = atlas.get_image()
+
+	if atlas_image == null or atlas_image.is_empty():
+		push_error("Could not retrieve terrain atlas image")
+		return
+
+	if atlas_image.is_compressed():
+		var error := atlas_image.decompress()
+		if error != OK:
+			push_error("Could not decompress terrain atlas: %s" % error)
+			return
+
+	if atlas_image.get_format() != Image.FORMAT_RGBA8:
+		atlas_image.convert(Image.FORMAT_RGBA8)
+
 	_bake_map_texture()
 	request_redraw("ready")
-
-
-func _load_atlas_image() -> Image:
-	var image: Image = Image.new()
-	var error: Error = image.load(ProjectSettings.globalize_path(ATLAS_PATH))
-	if error != OK:
-		push_error("Could not load terrain atlas image: %s" % error)
-		return null
-
-	return image
 
 
 func set_map_data(next_map_data: RefCounted) -> void:
