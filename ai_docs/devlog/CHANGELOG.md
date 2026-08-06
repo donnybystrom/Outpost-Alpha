@@ -3,6 +3,9 @@
 ## Unreleased
 
 - Added main menu with visual Outpost Alpha backdrop and `Sandbox` / `Quit to OS` actions.
+- Replaced the generated main-menu backdrop with `assets/start_screen_background.png`, centered and aspect-covered across the viewport.
+- Added persistent looping menu/sandbox music from `assets/audio/music/orbital_quiet.mp3` as an MVP music system placeholder.
+- Added `config/runtime.cfg` so development music playback and music volume can be changed without code edits.
 - Added `Dev Mode` main-menu entry for demo roads, demo objects, and dev-only terrain painting.
 - Changed `Sandbox` to start a clean generated world with no prebuilt demo roads.
 - Added bottom construction menu with road painting in both Sandbox and Dev Mode.
@@ -23,11 +26,55 @@
 - Added render diagnostics for draw count, redraw requests, last draw time, and cells processed per layer.
 - Added input conversion timing to the debug HUD.
 - Baked terrain and grid into cached textures to avoid thousands of per-frame tile draw calls.
+- Added an initial 3D terrain renderer using flat tile planes, terrain colors from `tile_visual_catalog.gd`, and an orthographic `Camera3D` synced to the existing isometric camera.
+- Added a 3D forest renderer that extracts tree variants from the low-poly tree collection OBJ and places seeded multimesh tree instances on forest terrain.
+- Added Sandbox Admin visual controls for global tree size and target tree density.
+- Fixed forest density tuning to store fractional values as floats, so admin values like 25% no longer truncate to 0%.
+- Added a procedural 3D mountain renderer that turns mountain terrain tiles into seeded fBm/ridged-noise heightfield massifs with edge falloff.
+- Added basic 3D world lighting with an angled directional sun and ambient environment; realtime shadows remain disabled by default while tree/building shadow quality is evaluated.
+- Changed 3D terrain, roads, mountains, forest, and HQ materials to receive lighting, and added normals for generated roads, generated mountains, and extracted tree meshes.
+- Fixed inconsistent 3D lighting direction by regenerating tree mesh normals from triangle geometry with the same upward-facing rule as procedural mountains.
+- Connected HQ normal, roughness, and metallic textures in the 3D building material and reduced emissive strength so sunlight affects its visible form.
+- Adjusted the MVP sun toward a higher late-morning angle and raised ambient light to reduce harsh black contrast on low-poly tree canopies.
+- Added experimental Alt + middle mouse drag view rotation for the 3D world camera while keeping the same orthographic projection size.
+- Changed map input projection to raycast through the active orthographic `Camera3D` onto the ground plane, so placement and right-click commands still target correct tiles after view rotation.
+- Fixed rotated-camera drag-selection by keeping the selection rectangle in viewport space and testing units against their projected screen positions.
+- Fixed rotated-camera middle-mouse pan by moving the camera center through ground-plane map deltas instead of unrotated 2D screen deltas.
+- Hid the old 2D terrain and grid layers while the 3D ground renderer is active; roads, buildings, units, and overlays still use the existing 2D pipeline during the migration.
 - Changed road rendering to a cached transparent road texture with dirty updates limited to the edited road tile and its four cardinal neighbors.
+- Replaced the MVP road atlas row with transparent temporary-road overlay sprites that connect through the existing road autotile masks.
+- Added a generated 3D road renderer that builds one flat temporary-road mesh per autotile mask and renders road tiles through multimesh buckets.
 - Added generated mountain massifs as mineable ground terrain, with adaptive neighbor-mask sprites in the terrain atlas.
 - Added initial sandbox colony state with population, idle people, digger operators, infantry, and placeholder resources.
 - Added `BuildingLayer` so colony buildings render above terrain/roads without rewriting the terrain layer.
 - Added sandbox construction buttons for `oxygen_extractor`, `living_quarters`, `machine_park`, `milling_plant`, and `road`.
+- Added `BuildingCatalog` for footprint, orientation, sprite atlas, anchor, and vehicle entry/approach metadata.
+- Added local runtime hot reload for `building_catalog.gd`, shared across placement, colony state, building rendering, and building preview.
+- Added Oxygen Extractor sprite rendering and placement preview from `assets/objects/buildings.png`.
+- Added Machine Park sprite rendering from `assets/objects/buildings.png`.
+- Added `R` rotation for active building placement and stored orientation on placed buildings.
+- Changed building sprite orientation so `vertical` can mirror the same atlas source horizontally instead of requiring a separate source rect.
+- Fixed mirrored building orientation so sprite anchors mirror with the source rect and vehicle entry/approach offsets transpose with the isometric flip.
+- Added a 3D building model layer and migrated HQ rendering to `assets/3D/buildings/hq/base.obj` with its texture set while preserving the 3x3 gameplay footprint.
+- Added 3D model metadata for Oxygen Extractor and Machine Park using `assets/3D/buildings/oxygen_extractor/base.obj` and `assets/3D/buildings/machine_park/base.obj`.
+- Added 3D model metadata for Milling Plant using `assets/3D/buildings/milling_plant/base.obj` and changed its base footprint to 2x3 tiles.
+- Added a 3D building placement preview layer so modeled buildings show a translucent model ghost during placement instead of the old 2D sprite preview.
+- Changed modeled building placement footprints to render as 3D ground-plane outlines, using the same per-tile valid/invalid feedback as the placement pipeline.
+- Added MVP road auto-connection at placed building vehicle approach tiles.
+- Added clickable building selection and a building HUD with health, power draw, footprint, and stored material placeholders.
+- Added Machine Park HUD actions for producing `drilling_machine` and `hauler` vehicle units from metal.
+- Added Drilling Machine mining work orders: right-click mountain terrain, mine for 5.5 seconds, return raw material to nearest Milling Plant, and process it into metal.
+- Added `hq` as a 3x3 building from `assets/objects/buildings.png`.
+- Added Hauler metal transport orders: select a Hauler, right-click a Milling Plant with stored metal, load 20 metal, use the full-cargo sprite, and deliver to the nearest HQ.
+- Changed Drilling Machine orders to loop automatically after a 2 second raw-material dump at the Milling Plant.
+- Changed Hauler transport orders to accept empty Milling Plants, wait for available metal, spend 2 seconds loading, spend 2 seconds unloading at HQ, and repeat automatically.
+- Added a top-center classic HUD resource bar showing metal currently stored in HQ buildings.
+- Changed Sandbox starts to preplace one HQ at map center with 225 starting metal.
+- Changed building and vehicle production costs to spend HQ metal; placement/production now fails when HQ metal is insufficient. Roads remain free.
+- Added initial building costs: Oxygen Extractor 40 metal, Machine Park 60 metal, Milling Plant 40 metal.
+- Added vehicle sprite rendering from `assets/objects/units.png` for empty/full haulers and drilling machines, with mirrored sprites for west-facing directions.
+- Added a 3D unit model layer and migrated Hauler rendering to `assets/3D/units/hauler_empty/base.obj` and `assets/3D/units/hauler_filled/base.obj`, switching model variant from cargo state.
+- Migrated Drilling Machine rendering to `assets/3D/units/drilling_machine_empty/base.obj` and `assets/3D/units/drilling_machine_full/base.obj`, switching model variant from raw cargo state.
 - Added Sharon's opening sandbox briefing and the first oxygen-survival objective.
 - Added `oxygen_extractor`, supporting oxygen for up to 5 colonists.
 - Added right-click cancellation for active placement tools, including roads and buildings.
@@ -36,12 +83,14 @@
 - Added visible worker units, worker movement commands, and cardinal tile pathfinding with forest/mountain/building blockers.
 - Added road movement cost so workers move 30% faster on roads and pathfinding proportionally prefers road routes.
 - Added drag-selection for workers, left-click selection clearing, right-click move commands, and formation-slot move orders so workers spread around their destination.
+- Added 80% opacity 1px selection boxes for selected units and selected building footprint tiles.
 - Added unit render diagnostics to the debug HUD.
-- Documented the MVP colony loop and explicit layer model in `docs/gdd/sandbox-colony-loop.md`.
+- Documented the MVP colony loop and explicit layer model in `ai_docs/gdd/sandbox-colony-loop.md`.
 - Documented the rendering/simulation layer split for ground, buildings, environment objects, units, and overlays.
 - Documented MVP tileset layout and future mask-to-atlas configuration workflow.
 - Made the world-generation admin panel hidden by default and toggleable with ` / §.
 - Added sandbox admin/settings panel with World, Raids, and Loot categories.
+- Changed HUD responsive layout to keep stable font sizing instead of scaling the whole UI root with viewport size.
 - Moved world generation controls into the admin panel's World tab.
-- Added living GDD documentation structure under `docs/gdd/`.
+- Added living GDD documentation structure under `ai_docs/gdd/`.
 - Documented current world generation parameters and design intent.

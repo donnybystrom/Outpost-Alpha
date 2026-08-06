@@ -92,4 +92,4 @@ Examples: `5` is north+south, `10` is east+west, `15` is a four-way crossing.
 
 ## Living Design Docs
 
-Design and concept notes live under `docs/gdd/`. Update those documents as gameplay direction changes, and add implementation/design behavior notes to `docs/devlog/CHANGELOG.md` as the prototype evolves.
+Design and concept notes live under `ai_docs/gdd/`. Update those documents as gameplay direction changes, and add implementation/design behavior notes to `ai_docs/devlog/CHANGELOG.md` as the prototype evolves.

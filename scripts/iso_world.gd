@@ -3,6 +3,10 @@ extends Node2D
 signal colony_changed(summary_lines: Array[String])
 signal paint_tool_changed(tool_id: String)
 signal tile_changed(tile: Vector2i, terrain_name: String)
+signal building_selection_changed(building: Dictionary)
+signal road_tiles_changed(tiles: Array)
+signal buildings_changed
+signal terrain_changed
 
 const IsoTileRenderer := preload("res://scripts/iso_tile_renderer.gd")
 const IsoRoadRenderer := preload("res://scripts/iso_road_renderer.gd")
@@ -14,6 +18,7 @@ const ProceduralMapGenerator := preload("res://scripts/procedural_map_generator.
 const ColonyState := preload("res://scripts/colony_state.gd")
 const UnitState := preload("res://scripts/unit_state.gd")
 const PathfindingGrid := preload("res://scripts/pathfinding_grid.gd")
+const BuildingCatalog := preload("res://scripts/building_catalog.gd")
 
 const TILE_SIZE := Vector2i(32, 16)
 const HALF_TILE := Vector2(TILE_SIZE.x / 2.0, TILE_SIZE.y / 2.0)
@@ -31,8 +36,10 @@ const PAINT_TOOL_NONE := "none"
 const PAINT_TOOL_ROAD := "road"
 const PAINT_TOOL_TERRAIN_PREFIX := "terrain:"
 const PAINT_TOOL_BUILDING_PREFIX := "building:"
+const BUILDING_CATALOG_HOT_RELOAD_INTERVAL := 0.5
 
 var map_data: RefCounted
+var building_catalog
 var colony_state: ColonyState
 var unit_state: UnitState
 var pathfinding_grid: PathfindingGrid
@@ -44,10 +51,12 @@ var unit_layer: IsoUnitLayer
 var overlay_layer: IsoOverlayLayer
 var hovered_tile := Vector2i(-1, -1)
 var selected_tile := Vector2i(-1, -1)
+var selected_building_id := -1
 var show_grid := true
 var dev_mode := false
 var show_demo_content := false
 var paint_tool := PAINT_TOOL_NONE
+var building_orientation := BuildingCatalog.ORIENTATION_HORIZONTAL
 var path_count := 3
 var path_width := 8
 var clearing_noise := 45
@@ -60,21 +69,29 @@ var _last_drag_paint_tile := Vector2i(-1, -1)
 var _is_unit_selection_dragging := false
 var _selection_drag_start_world := Vector2.ZERO
 var _selection_drag_current_world := Vector2.ZERO
+var _selection_uses_viewport_space := false
+var _selection_unit_projector := Callable()
 var redraw_requests: int = 0
 var draw_calls: int = 0
 var last_draw_usec: int = 0
 var last_cells_processed: int = 0
 var last_redraw_reason: String = ""
+var _building_catalog_hot_reload_elapsed := 0.0
+var _building_catalog_modified_time := 0
 
 
 func _ready() -> void:
 	position = Vector2.ZERO
+	building_catalog = BuildingCatalog.new()
 	colony_state = ColonyState.new()
+	colony_state.set_building_catalog(building_catalog)
 	unit_state = UnitState.new()
 	pathfinding_grid = PathfindingGrid.new()
+	_building_catalog_modified_time = _get_building_catalog_modified_time()
 	_generate_world()
+	_place_starting_hq()
 	_configure_navigation()
-	unit_state.reset(map_data.start_tile, colony_state.population)
+	unit_state.reset(_nearest_spawn_tile(map_data.start_tile), colony_state.population)
 	_build_render_layers()
 	set_process(true)
 	request_redraw("ready")
@@ -98,8 +115,10 @@ func regenerate(next_path_count: int, next_min_build_radius: int, next_max_build
 	show_demo_content = include_demo_roads
 	_generate_world()
 	colony_state.reset()
+	selected_building_id = -1
+	_place_starting_hq()
 	_configure_navigation()
-	unit_state.reset(map_data.start_tile, colony_state.population)
+	unit_state.reset(_nearest_spawn_tile(map_data.start_tile), colony_state.population)
 	if terrain_layer != null:
 		terrain_layer.set_map_data(map_data)
 	if road_layer != null:
@@ -112,17 +131,29 @@ func regenerate(next_path_count: int, next_min_build_radius: int, next_max_build
 		unit_layer.set_unit_state(unit_state)
 	if overlay_layer != null:
 		overlay_layer.set_map_data(map_data)
+		overlay_layer.set_selected_building_tiles([])
 	hovered_tile = Vector2i(-1, -1)
 	_clear_line_preview()
 	_update_placement_feedback()
 	request_redraw("regenerate")
 	tile_changed.emit(selected_tile, _terrain_name(selected_tile))
+	terrain_changed.emit()
+	buildings_changed.emit()
 	colony_changed.emit(colony_state.get_summary_lines())
+	building_selection_changed.emit({})
 
 
 func _process(delta: float) -> void:
-	if unit_state != null and unit_state.advance(delta, pathfinding_grid) and unit_layer != null:
-		unit_layer.request_redraw("unit_move")
+	_poll_building_catalog_hot_reload(delta)
+	if colony_state != null and colony_state.advance(delta):
+		colony_changed.emit(colony_state.get_summary_lines())
+		building_selection_changed.emit(get_selected_building())
+	if unit_state != null and unit_state.advance(delta, pathfinding_grid, colony_state):
+		if unit_layer != null:
+			unit_layer.request_redraw("unit_move")
+		if colony_state != null:
+			colony_changed.emit(colony_state.get_summary_lines())
+			building_selection_changed.emit(get_selected_building())
 
 
 func _generate_world() -> void:
@@ -156,6 +187,7 @@ func _build_render_layers() -> void:
 	building_layer.name = "BuildingLayer"
 	building_layer.z_index = 0
 	add_child(building_layer)
+	building_layer.set_building_catalog(building_catalog)
 	building_layer.set_colony_state(colony_state)
 
 	unit_layer = IsoUnitLayer.new()
@@ -175,10 +207,12 @@ func _build_render_layers() -> void:
 	overlay_layer.name = "OverlayLayer"
 	overlay_layer.z_index = 20
 	add_child(overlay_layer)
+	overlay_layer.set_building_catalog(building_catalog)
 	overlay_layer.set_map_data(map_data)
 	overlay_layer.set_road_atlas(road_layer.atlas)
 	overlay_layer.set_selected_tile(selected_tile)
 	overlay_layer.set_paint_tool(paint_tool, dev_mode)
+	overlay_layer.set_building_orientation(building_orientation)
 
 
 func _draw() -> void:
@@ -198,12 +232,24 @@ func set_paint_tool(next_tool: String) -> void:
 		paint_tool = PAINT_TOOL_NONE
 	else:
 		paint_tool = next_tool
+	if paint_tool != previous_tool and paint_tool.begins_with(PAINT_TOOL_BUILDING_PREFIX):
+		building_orientation = BuildingCatalog.ORIENTATION_HORIZONTAL
 	_clear_line_preview()
 	if overlay_layer != null:
 		overlay_layer.set_paint_tool(paint_tool, dev_mode)
+		overlay_layer.set_building_orientation(building_orientation)
 	_update_placement_feedback()
 	if paint_tool != previous_tool:
 		paint_tool_changed.emit(paint_tool)
+
+
+func rotate_active_building() -> void:
+	if not paint_tool.begins_with(PAINT_TOOL_BUILDING_PREFIX):
+		return
+	building_orientation = building_catalog.get_toggled_orientation(building_orientation)
+	if overlay_layer != null:
+		overlay_layer.set_building_orientation(building_orientation)
+	_update_placement_feedback()
 
 
 func cancel_active_placement() -> void:
@@ -224,7 +270,13 @@ func secondary_press_world(_world_position: Vector2, tile: Vector2i) -> void:
 		return
 	_cancel_unit_selection_drag()
 	if unit_state != null and unit_state.has_selection() and _is_inside_map(tile):
+		if _try_command_selected_drilling_machines_to_mine(tile):
+			return
+		if _try_command_selected_haulers_to_transport_metal(tile):
+			return
 		_command_selected_workers_to(tile)
+	else:
+		clear_building_selection()
 
 
 func paint_tile(tile: Vector2i) -> void:
@@ -276,6 +328,23 @@ func primary_press_world(world_position: Vector2, tile: Vector2i, line_mode: boo
 		_request_overlay_redraw("select")
 
 
+func primary_press_viewport(viewport_position: Vector2, tile: Vector2i, line_mode: bool, unit_projector: Callable) -> void:
+	if paint_tool != PAINT_TOOL_NONE:
+		primary_press_world(map_to_screen(tile), tile, line_mode)
+		return
+	if not _is_inside_map(tile):
+		return
+
+	selected_tile = tile
+	tile_changed.emit(selected_tile, _terrain_name(selected_tile))
+	if overlay_layer != null:
+		overlay_layer.set_selected_tile(selected_tile)
+	_last_drag_paint_tile = Vector2i(-1, -1)
+	_selection_unit_projector = unit_projector
+	_begin_unit_selection_drag(viewport_position, true)
+	_request_overlay_redraw("select")
+
+
 func primary_drag_tile(tile: Vector2i) -> void:
 	primary_drag_world(map_to_screen(tile), tile)
 
@@ -293,6 +362,18 @@ func primary_drag_world(world_position: Vector2, tile: Vector2i) -> void:
 		_update_unit_selection_drag(world_position)
 
 
+func primary_drag_viewport(viewport_position: Vector2, tile: Vector2i) -> void:
+	if paint_tool != PAINT_TOOL_NONE:
+		primary_drag_world(map_to_screen(tile), tile)
+		return
+	if not _is_inside_map(tile):
+		return
+
+	hover_tile(tile)
+	if _is_unit_selection_dragging:
+		_update_unit_selection_drag(viewport_position)
+
+
 func primary_release_tile(tile: Vector2i) -> void:
 	primary_release_world(map_to_screen(tile), tile)
 
@@ -304,6 +385,15 @@ func primary_release_world(world_position: Vector2, tile: Vector2i) -> void:
 		_commit_line_preview()
 	elif _is_unit_selection_dragging:
 		_release_unit_selection_drag(world_position, tile)
+	_last_drag_paint_tile = Vector2i(-1, -1)
+
+
+func primary_release_viewport(viewport_position: Vector2, tile: Vector2i) -> void:
+	if paint_tool != PAINT_TOOL_NONE:
+		primary_release_world(map_to_screen(tile), tile)
+		return
+	if _is_unit_selection_dragging:
+		_release_unit_selection_drag(viewport_position, tile)
 	_last_drag_paint_tile = Vector2i(-1, -1)
 
 
@@ -402,18 +492,25 @@ func _clear_line_preview() -> void:
 	_update_placement_feedback()
 
 
-func _begin_unit_selection_drag(world_position: Vector2) -> void:
+func _begin_unit_selection_drag(world_position: Vector2, viewport_space: bool = false) -> void:
 	_is_unit_selection_dragging = true
+	_selection_uses_viewport_space = viewport_space
+	if not viewport_space:
+		_selection_unit_projector = Callable()
 	_selection_drag_start_world = world_position
 	_selection_drag_current_world = world_position
 	if overlay_layer != null:
-		overlay_layer.set_selection_rect(Rect2(world_position, Vector2.ZERO), true)
+		overlay_layer.set_selection_rect(Rect2(world_position, Vector2.ZERO), true, viewport_space)
 
 
 func _update_unit_selection_drag(world_position: Vector2) -> void:
 	_selection_drag_current_world = world_position
 	if overlay_layer != null:
-		overlay_layer.set_selection_rect(Rect2(_selection_drag_start_world, _selection_drag_current_world - _selection_drag_start_world), true)
+		overlay_layer.set_selection_rect(
+			Rect2(_selection_drag_start_world, _selection_drag_current_world - _selection_drag_start_world),
+			true,
+			_selection_uses_viewport_space
+		)
 
 
 func _release_unit_selection_drag(world_position: Vector2, tile: Vector2i) -> void:
@@ -421,34 +518,48 @@ func _release_unit_selection_drag(world_position: Vector2, tile: Vector2i) -> vo
 	var drag_distance := _selection_drag_start_world.distance_to(world_position)
 	_cancel_unit_selection_drag()
 	if drag_distance >= 6.0:
-		_select_units_in_world_rect(drag_rect)
+		_select_units_in_world_rect(drag_rect, _active_unit_projector())
 		return
 
-	if not _select_unit_near(world_position):
+	if _select_building_at_tile(tile):
+		return
+	if not _select_unit_near(world_position, _active_unit_projector()):
 		clear_unit_selection()
+		clear_building_selection()
 
 
 func _cancel_unit_selection_drag() -> void:
 	_is_unit_selection_dragging = false
+	_selection_uses_viewport_space = false
 	if overlay_layer != null:
 		overlay_layer.set_selection_rect(Rect2(), false)
 
 
-func _select_units_in_world_rect(world_rect: Rect2) -> void:
+func _select_units_in_world_rect(world_rect: Rect2, projector: Callable = Callable()) -> void:
 	if unit_state == null:
 		return
-	unit_state.select_workers_in_rect(world_rect, Callable(self, "map_position_to_screen"))
+	if not projector.is_valid():
+		projector = Callable(self, "map_position_to_screen")
+	unit_state.select_workers_in_rect(world_rect, projector)
 	if unit_layer != null:
 		unit_layer.request_redraw("unit_selection")
 
 
-func _select_unit_near(world_position: Vector2) -> bool:
+func _select_unit_near(world_position: Vector2, projector: Callable = Callable()) -> bool:
 	if unit_state == null:
 		return false
-	var selected := unit_state.select_worker_near(world_position, Callable(self, "map_position_to_screen"))
+	if not projector.is_valid():
+		projector = Callable(self, "map_position_to_screen")
+	var selected := unit_state.select_worker_near(world_position, projector)
 	if unit_layer != null:
 		unit_layer.request_redraw("unit_click_select")
 	return selected
+
+
+func _active_unit_projector() -> Callable:
+	if _selection_unit_projector.is_valid():
+		return _selection_unit_projector
+	return Callable(self, "map_position_to_screen")
 
 
 func clear_unit_selection() -> void:
@@ -457,6 +568,103 @@ func clear_unit_selection() -> void:
 		unit_state.clear_selection()
 	if unit_layer != null:
 		unit_layer.request_redraw("clear_unit_selection")
+
+
+func clear_building_selection() -> void:
+	if selected_building_id == -1:
+		return
+	selected_building_id = -1
+	_update_selected_building_overlay({})
+	building_selection_changed.emit({})
+
+
+func get_selected_building() -> Dictionary:
+	if colony_state == null or selected_building_id == -1:
+		return {}
+	return colony_state.get_building_by_id(selected_building_id)
+
+
+func request_build_vehicle(unit_type: String) -> bool:
+	var building := get_selected_building()
+	if building.is_empty() or building.get("type", "") != BuildingCatalog.BUILDING_MACHINE_PARK:
+		return false
+	if colony_state == null or not colony_state.spend_vehicle_cost(building, unit_type):
+		return false
+
+	var spawn_tile: Vector2i = building.get("vehicle_approach_tile", building.get("origin", selected_tile))
+	if not _is_inside_map(spawn_tile) or pathfinding_grid == null or not pathfinding_grid.is_tile_passable(spawn_tile):
+		spawn_tile = _nearest_spawn_tile(building.get("origin", selected_tile))
+	var unit := unit_state.add_vehicle(unit_type, spawn_tile)
+	_configure_navigation()
+	if unit_layer != null:
+		unit_layer.request_redraw("build_vehicle")
+	colony_changed.emit(colony_state.get_summary_lines())
+	building_selection_changed.emit(get_selected_building())
+	return not unit.is_empty()
+
+
+func _select_building_at_tile(tile: Vector2i) -> bool:
+	if colony_state == null or not _is_inside_map(tile):
+		return false
+	var building := colony_state.get_building_at_tile(tile)
+	if building.is_empty():
+		return false
+	selected_building_id = int(building["id"])
+	clear_unit_selection()
+	_update_selected_building_overlay(building)
+	building_selection_changed.emit(building)
+	return true
+
+
+func _update_selected_building_overlay(building: Dictionary) -> void:
+	if overlay_layer == null:
+		return
+	if building.is_empty():
+		overlay_layer.set_selected_building_tiles([])
+		return
+	var tiles: Array[Vector2i] = []
+	var origin: Vector2i = building.get("origin", Vector2i.ZERO)
+	var footprint: Vector2i = building.get("footprint", Vector2i.ONE)
+	for y in footprint.y:
+		for x in footprint.x:
+			tiles.append(origin + Vector2i(x, y))
+	overlay_layer.set_selected_building_tiles(tiles)
+
+
+func _nearest_spawn_tile(origin: Vector2i) -> Vector2i:
+	if pathfinding_grid == null:
+		return origin
+	for radius in range(0, 8):
+		for y in range(-radius, radius + 1):
+			for x in range(-radius, radius + 1):
+				if maxi(absi(x), absi(y)) != radius:
+					continue
+				var tile := origin + Vector2i(x, y)
+				if _is_inside_map(tile) and pathfinding_grid.is_tile_passable(tile):
+					return tile
+	return origin
+
+
+func _place_starting_hq() -> void:
+	if colony_state == null or map_data == null:
+		return
+	var footprint: Vector2i = building_catalog.get_footprint(BuildingCatalog.BUILDING_HQ)
+	var origin: Vector2i = map_data.start_tile - Vector2i(floori(float(footprint.x) * 0.5), floori(float(footprint.y) * 0.5))
+	_clear_starting_hq_site(origin, footprint)
+	colony_state.place_starting_hq(origin)
+	var hq_building := colony_state.get_nearest_building_of_type(BuildingCatalog.BUILDING_HQ, map_data.start_tile)
+	if not hq_building.is_empty():
+		_connect_building_vehicle_entry(hq_building)
+
+
+func _clear_starting_hq_site(origin: Vector2i, footprint: Vector2i) -> void:
+	for y in range(-1, footprint.y + 2):
+		for x in range(-1, footprint.x + 2):
+			var tile := origin + Vector2i(x, y)
+			if not map_data.is_inside(tile):
+				continue
+			map_data.set_terrain(tile, 0)
+			map_data.set_road(tile, false)
 
 
 func _request_overlay_redraw(reason: String) -> void:
@@ -474,11 +682,14 @@ func _apply_paint_tool(tile: Vector2i, redraw_static_layer: bool) -> void:
 			_refresh_unit_paths("road_edit")
 	elif paint_tool.begins_with(PAINT_TOOL_BUILDING_PREFIX):
 		var building_type: String = paint_tool.trim_prefix(PAINT_TOOL_BUILDING_PREFIX)
-		if colony_state != null and colony_state.place_building(building_type, tile, map_data):
+		if colony_state != null and colony_state.place_building(building_type, tile, map_data, building_orientation):
+			var placed_building: Dictionary = colony_state.buildings[colony_state.buildings.size() - 1]
+			_connect_building_vehicle_entry(placed_building)
 			if building_layer != null:
 				building_layer.request_redraw("place_building")
 			_refresh_unit_paths("building_edit")
 			request_redraw("place_building")
+			buildings_changed.emit()
 			colony_changed.emit(colony_state.get_summary_lines())
 	elif paint_tool.begins_with(PAINT_TOOL_TERRAIN_PREFIX) and dev_mode:
 		var terrain_id := paint_tool.trim_prefix(PAINT_TOOL_TERRAIN_PREFIX).to_int()
@@ -551,7 +762,7 @@ func _building_footprint_tiles(building_type: String, origin: Vector2i) -> Array
 	if colony_state == null or not _is_inside_map(origin):
 		var empty_tiles: Array[Vector2i] = []
 		return empty_tiles
-	return colony_state.footprint_tiles(building_type, origin)
+	return colony_state.footprint_tiles(building_type, origin, building_orientation)
 
 
 func _can_place_tool_tile(tile: Vector2i) -> bool:
@@ -569,12 +780,26 @@ func _can_place_road_tile(tile: Vector2i) -> bool:
 
 
 func _can_place_building_footprint_tile(tile: Vector2i) -> bool:
+	var building_type := paint_tool.trim_prefix(PAINT_TOOL_BUILDING_PREFIX)
 	return (
 		_is_inside_map(tile)
 		and map_data.get_terrain(tile) <= 1
 		and not map_data.has_road(tile)
 		and (colony_state == null or not colony_state.is_occupied(tile))
+		and (colony_state == null or colony_state.can_afford_building(building_type))
 	)
+
+
+func _connect_building_vehicle_entry(building: Dictionary) -> void:
+	var approach_tile: Vector2i = building.get("vehicle_approach_tile", Vector2i(-1, -1))
+	if not _is_inside_map(approach_tile):
+		return
+	if colony_state != null and colony_state.is_occupied(approach_tile):
+		return
+	if map_data.get_terrain(approach_tile) > 1:
+		return
+	map_data.set_road(approach_tile, true)
+	_refresh_road_tile(approach_tile)
 
 
 func _is_continuous_paint_tool() -> bool:
@@ -635,19 +860,114 @@ func _command_selected_workers_to(tile: Vector2i) -> void:
 		unit_layer.request_redraw("selected_worker_command")
 
 
+func _try_command_selected_drilling_machines_to_mine(tile: Vector2i) -> bool:
+	if unit_state == null or colony_state == null or map_data == null or pathfinding_grid == null:
+		return false
+	if map_data.get_terrain(tile) != 5 or unit_state.selected_drilling_machine_count() <= 0:
+		return false
+
+	var milling_plant := colony_state.get_nearest_building_of_type(BuildingCatalog.BUILDING_MILLING_PLANT, tile)
+	if milling_plant.is_empty():
+		return false
+
+	var work_tiles := _mining_work_tiles(tile, unit_state.selected_drilling_machine_count())
+	if work_tiles.is_empty():
+		return false
+
+	var return_tile: Vector2i = milling_plant.get("vehicle_approach_tile", milling_plant.get("origin", tile))
+	if not pathfinding_grid.is_tile_passable(return_tile):
+		return_tile = _nearest_spawn_tile(milling_plant.get("origin", tile))
+
+	var assigned := unit_state.command_selected_drilling_machines_to_mine(
+		tile,
+		work_tiles,
+		return_tile,
+		int(milling_plant["id"]),
+		pathfinding_grid
+	)
+	if assigned and unit_layer != null:
+		unit_layer.request_redraw("drilling_mine_order")
+	return assigned
+
+
+func _try_command_selected_haulers_to_transport_metal(tile: Vector2i) -> bool:
+	if unit_state == null or colony_state == null or map_data == null or pathfinding_grid == null:
+		return false
+	if unit_state.selected_hauler_count() <= 0:
+		return false
+
+	var source_building := colony_state.get_building_at_tile(tile)
+	if source_building.is_empty() or source_building.get("type", "") != BuildingCatalog.BUILDING_MILLING_PLANT:
+		return false
+
+	var hq_building := colony_state.get_nearest_building_of_type(
+		BuildingCatalog.BUILDING_HQ,
+		source_building.get("origin", tile)
+	)
+	if hq_building.is_empty():
+		return false
+
+	var source_tile: Vector2i = source_building.get("vehicle_approach_tile", source_building.get("origin", tile))
+	if not pathfinding_grid.is_tile_passable(source_tile):
+		source_tile = _nearest_spawn_tile(source_building.get("origin", tile))
+
+	var hq_tile: Vector2i = hq_building.get("vehicle_approach_tile", hq_building.get("origin", tile))
+	if not pathfinding_grid.is_tile_passable(hq_tile):
+		hq_tile = _nearest_spawn_tile(hq_building.get("origin", tile))
+
+	var assigned := unit_state.command_selected_haulers_to_transport_metal(
+		source_tile,
+		int(source_building["id"]),
+		hq_tile,
+		int(hq_building["id"]),
+		pathfinding_grid
+	)
+	if assigned and unit_layer != null:
+		unit_layer.request_redraw("hauler_transport_order")
+	return assigned
+
+
+func _mining_work_tiles(mountain_tile: Vector2i, count: int) -> Array[Vector2i]:
+	var work_tiles: Array[Vector2i] = []
+	var offsets: Array[Vector2i] = [
+		Vector2i(0, -1),
+		Vector2i(1, 0),
+		Vector2i(0, 1),
+		Vector2i(-1, 0),
+		Vector2i(1, -1),
+		Vector2i(1, 1),
+		Vector2i(-1, 1),
+		Vector2i(-1, -1),
+	]
+	for radius in range(1, 5):
+		for offset in offsets:
+			var scaled_offset := Vector2i(offset.x * radius, offset.y * radius)
+			var tile := mountain_tile + scaled_offset
+			if work_tiles.has(tile):
+				continue
+			if _is_inside_map(tile) and pathfinding_grid.is_tile_passable(tile):
+				work_tiles.append(tile)
+				if work_tiles.size() >= count:
+					return work_tiles
+	return work_tiles
+
+
 func _refresh_terrain_layer() -> void:
 	if terrain_layer != null:
 		terrain_layer.request_redraw("terrain_edit")
+	terrain_changed.emit()
 
 
 func _refresh_road_tiles(changed_tiles: Array[Vector2i]) -> void:
 	if road_layer != null:
 		road_layer.notify_roads_changed(changed_tiles)
+	road_tiles_changed.emit(changed_tiles)
 
 
 func _refresh_road_tile(tile: Vector2i) -> void:
 	if road_layer != null:
 		road_layer.notify_road_changed(tile)
+	road_tiles_changed.emit([tile])
 
 
 func _line_tiles(start: Vector2i, end: Vector2i) -> Array[Vector2i]:
@@ -741,6 +1061,55 @@ func _terrain_name(tile: Vector2i) -> String:
 	if not _is_inside_map(tile):
 		return "Outside map"
 	return TERRAIN_NAMES[map_data.get_terrain(tile)]
+
+
+func reload_building_catalog() -> bool:
+	var catalog_script := ResourceLoader.load(BuildingCatalog.CATALOG_PATH, "Script", ResourceLoader.CACHE_MODE_REPLACE) as Script
+	if catalog_script == null:
+		return false
+
+	var next_building_catalog = catalog_script.new()
+	if next_building_catalog == null or not next_building_catalog.has_method("get_definition"):
+		return false
+
+	building_catalog = next_building_catalog
+	if colony_state != null:
+		colony_state.set_building_catalog(building_catalog)
+	if building_layer != null:
+		building_layer.set_building_catalog(building_catalog)
+		building_layer.request_redraw("building_catalog_reload")
+	if overlay_layer != null:
+		overlay_layer.set_building_catalog(building_catalog)
+		overlay_layer.set_building_orientation(building_orientation)
+		overlay_layer.request_redraw("building_catalog_reload")
+	_update_placement_feedback()
+	_refresh_unit_paths("building_catalog_reload")
+	_building_catalog_modified_time = _get_building_catalog_modified_time()
+	buildings_changed.emit()
+	colony_changed.emit(colony_state.get_summary_lines())
+	return true
+
+
+func _poll_building_catalog_hot_reload(delta: float) -> void:
+	if OS.has_feature("web"):
+		return
+	_building_catalog_hot_reload_elapsed += delta
+	if _building_catalog_hot_reload_elapsed < BUILDING_CATALOG_HOT_RELOAD_INTERVAL:
+		return
+	_building_catalog_hot_reload_elapsed = 0.0
+
+	var modified_time := _get_building_catalog_modified_time()
+	if modified_time == 0 or modified_time == _building_catalog_modified_time:
+		return
+	_building_catalog_modified_time = modified_time
+	reload_building_catalog()
+
+
+func _get_building_catalog_modified_time() -> int:
+	var catalog_path := ProjectSettings.globalize_path(BuildingCatalog.CATALOG_PATH)
+	if not FileAccess.file_exists(catalog_path):
+		return 0
+	return FileAccess.get_modified_time(catalog_path)
 
 
 func get_generation_summary() -> String:

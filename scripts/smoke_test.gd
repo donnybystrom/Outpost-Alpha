@@ -22,6 +22,36 @@ func _initialize() -> void:
 		push_error("Initial UI visibility is not main-menu-only.")
 		quit(1)
 		return
+	if root.main_menu_background == null or root.main_menu_background.texture == null:
+		push_error("Main menu should use assets/start_screen_background.png as a rendered background texture.")
+		quit(1)
+		return
+	if root.main_menu_background.stretch_mode != TextureRect.STRETCH_KEEP_ASPECT_COVERED:
+		push_error("Main menu background should cover the viewport without distorting aspect ratio.")
+		quit(1)
+		return
+	if root.music_player == null:
+		push_error("Main scene should create a music player for the music system.")
+		quit(1)
+		return
+	if root.music_enabled:
+		if root.music_player.stream == null:
+			push_error("Main scene should load the start music stream when music is enabled.")
+			quit(1)
+			return
+		if root.music_player.stream is AudioStreamMP3 and not (root.music_player.stream as AudioStreamMP3).loop:
+			push_error("Start music MP3 should be configured to loop.")
+			quit(1)
+			return
+		if not root.music_player.playing:
+			push_error("Start music should begin playing on the main menu when enabled.")
+			quit(1)
+			return
+	else:
+		if root.music_player.playing:
+			push_error("Start music should not play when runtime config disables music.")
+			quit(1)
+			return
 
 	root.paths_spin_box.value = 5
 	root.path_width_spin_box.value = 2
@@ -39,22 +69,115 @@ func _initialize() -> void:
 		push_error("Sandbox start did not create the expected world, camera and input nodes.")
 		quit(1)
 		return
+	if root.music_enabled and not root.music_player.playing:
+		push_error("Start music should continue playing after entering Sandbox.")
+		quit(1)
+		return
 
 	var terrain_layer := world.get_node_or_null("TerrainTileLayer")
 	if terrain_layer == null:
 		push_error("IsoWorld did not create TerrainTileLayer.")
 		quit(1)
 		return
+	if terrain_layer.visible:
+		push_error("2D terrain layer should be hidden while the 3D terrain renderer is active.")
+		quit(1)
+		return
+	var terrain_3d_layer := root.get_node_or_null("Terrain3DLayer")
+	if terrain_3d_layer == null:
+		push_error("Main scene should create Terrain3DLayer for the 3D ground renderer.")
+		quit(1)
+		return
+	var forest_3d_layer := root.get_node_or_null("Forest3DLayer")
+	if forest_3d_layer == null:
+		push_error("Main scene should create Forest3DLayer for 3D tree placement.")
+		quit(1)
+		return
+	var mountain_3d_layer := root.get_node_or_null("Mountain3DLayer")
+	if mountain_3d_layer == null:
+		push_error("Main scene should create Mountain3DLayer for procedural 3D mountain massifs.")
+		quit(1)
+		return
+	var road_3d_layer := root.get_node_or_null("Road3DLayer")
+	if road_3d_layer == null:
+		push_error("Main scene should create Road3DLayer for the 3D road renderer.")
+		quit(1)
+		return
+	if road_3d_layer.material == null or road_3d_layer.material.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED:
+		push_error("3D road material should receive lighting instead of being unshaded.")
+		quit(1)
+		return
+	var road_mesh := road_3d_layer.mesh_by_mask[0] as ArrayMesh
+	var road_arrays: Array = road_mesh.surface_get_arrays(0)
+	var road_normals: PackedVector3Array = road_arrays[Mesh.ARRAY_NORMAL]
+	if road_normals.is_empty():
+		push_error("Road3DLayer should generate normals so sunlight can shade road meshes.")
+		quit(1)
+		return
+	var building_3d_layer := root.get_node_or_null("Building3DLayer")
+	if building_3d_layer == null:
+		push_error("Main scene should create Building3DLayer for 3D building models.")
+		quit(1)
+		return
+	var building_preview_3d_layer := root.get_node_or_null("BuildingPreview3DLayer")
+	if building_preview_3d_layer == null:
+		push_error("Main scene should create BuildingPreview3DLayer for 3D placement previews.")
+		quit(1)
+		return
+	if root.camera_3d == null:
+		push_error("Main scene should create an orthographic Camera3D for the 3D ground renderer.")
+		quit(1)
+		return
+	var camera_3d_size_before_rotation: float = root.camera_3d.size
+	var camera_3d_yaw_before_rotation: float = root.camera_3d.yaw_radians
+	root._on_camera_view_rotation_dragged(80.0)
+	if is_equal_approx(root.camera_3d.yaw_radians, camera_3d_yaw_before_rotation):
+		push_error("Alt-middle mouse drag should rotate the 3D world view yaw.")
+		quit(1)
+		return
+	if not is_equal_approx(root.camera_3d.size, camera_3d_size_before_rotation):
+		push_error("3D world view rotation should keep the same orthographic projection size.")
+		quit(1)
+		return
+	var sun_light := root.get_node_or_null("SunLight") as DirectionalLight3D
+	if sun_light == null or not sun_light.visible:
+		push_error("Main scene should create a visible DirectionalLight3D sun for 3D world lighting.")
+		quit(1)
+		return
+	if sun_light.shadow_enabled:
+		push_error("MVP sun shadows should be disabled by default until shadow quality controls exist.")
+		quit(1)
+		return
+	var world_environment := root.get_node_or_null("WorldEnvironment") as WorldEnvironment
+	if world_environment == null or world_environment.environment == null:
+		push_error("Main scene should create a WorldEnvironment with ambient lighting.")
+		quit(1)
+		return
+	if terrain_3d_layer.get_child_count() > 0:
+		var terrain_instance := terrain_3d_layer.get_child(0) as MultiMeshInstance3D
+		var terrain_material := terrain_instance.material_override as StandardMaterial3D
+		if terrain_material == null or terrain_material.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED:
+			push_error("3D terrain material should receive lighting instead of being unshaded.")
+			quit(1)
+			return
 
 	var road_layer := world.get_node_or_null("RoadTileLayer")
 	if road_layer == null:
 		push_error("IsoWorld did not create RoadTileLayer.")
 		quit(1)
 		return
+	if road_layer.visible:
+		push_error("2D road layer should be hidden while the 3D road renderer is active.")
+		quit(1)
+		return
 
 	var grid_layer := world.get_node_or_null("GridLayer")
 	if grid_layer == null:
 		push_error("IsoWorld did not create GridLayer.")
+		quit(1)
+		return
+	if grid_layer.visible:
+		push_error("2D grid layer should be hidden while the 3D terrain renderer is active.")
 		quit(1)
 		return
 
@@ -69,10 +192,95 @@ func _initialize() -> void:
 		push_error("IsoWorld did not create BuildingLayer.")
 		quit(1)
 		return
+	if not building_layer.hidden_building_types.has("hq"):
+		push_error("2D BuildingLayer should hide HQ while the 3D HQ model renderer is active.")
+		quit(1)
+		return
+	if building_layer.atlas == null:
+		push_error("BuildingLayer should load the buildings object atlas.")
+		quit(1)
+		return
+	if not world.reload_building_catalog():
+		push_error("Building catalog reload should keep a valid runtime catalog.")
+		quit(1)
+		return
+	if world.colony_state.building_catalog != world.building_catalog:
+		push_error("Reloaded building catalog should propagate to colony state.")
+		quit(1)
+		return
+	if world.building_catalog.get_footprint("milling_plant", "horizontal") != Vector2i(2, 3):
+		push_error("Milling Plant should use the configured 2x3 horizontal footprint.")
+		quit(1)
+		return
+	if world.building_catalog.get_footprint("milling_plant", "vertical") != Vector2i(3, 2):
+		push_error("Milling Plant should transpose to a 3x2 vertical footprint.")
+		quit(1)
+		return
+	if not world.building_catalog.should_flip_sprite_horizontal("milling_plant", "vertical"):
+		push_error("Single-source building sprites should mirror horizontally for vertical orientation.")
+		quit(1)
+		return
+	if world.building_catalog.get_vehicle_approach_offset("milling_plant", "vertical") != Vector2i(3, 1):
+		push_error("Milling Plant vertical vehicle approach should transpose with the flipped isometric sprite.")
+		quit(1)
+		return
+	var milling_source: Rect2i = world.building_catalog.get_sprite_source_rect("milling_plant", "vertical")
+	var milling_anchor_horizontal: Vector2 = world.building_catalog.get_sprite_anchor("milling_plant", "horizontal")
+	var milling_anchor_vertical: Vector2 = world.building_catalog.get_sprite_anchor("milling_plant", "vertical")
+	if not is_equal_approx(milling_anchor_horizontal.x + milling_anchor_vertical.x, float(milling_source.size.x)):
+		push_error("Milling Plant vertical sprite anchor should mirror horizontally inside the source rect.")
+		quit(1)
+		return
+	var machine_park_footprint: Vector2i = world.building_catalog.get_footprint("machine_park", "horizontal")
+	if machine_park_footprint.x < 1 or machine_park_footprint.y < 1:
+		push_error("Machine Park should use a non-empty configured horizontal footprint.")
+		quit(1)
+		return
+	if world.building_catalog.get_model_config("oxygen_extractor").get("mesh_path", "") != "res://assets/3D/buildings/oxygen_extractor/base.obj":
+		push_error("Oxygen Extractor should be configured with its 3D OBJ model asset.")
+		quit(1)
+		return
+	if world.building_catalog.get_model_config("machine_park").get("mesh_path", "") != "res://assets/3D/buildings/machine_park/base.obj":
+		push_error("Machine Park should be configured with its 3D OBJ model asset.")
+		quit(1)
+		return
+	if world.building_catalog.get_model_config("milling_plant").get("mesh_path", "") != "res://assets/3D/buildings/milling_plant/base.obj":
+		push_error("Milling Plant should be configured with its 3D OBJ model asset.")
+		quit(1)
+		return
+	if world.building_catalog.get_sprite_source_rect("machine_park", "horizontal").size == Vector2i.ZERO:
+		push_error("Machine Park should have an atlas sprite source rect.")
+		quit(1)
+		return
+	if not world.building_catalog.should_flip_sprite_horizontal("machine_park", "vertical"):
+		push_error("Machine Park should mirror its single-source sprite for vertical orientation.")
+		quit(1)
+		return
+	if world.building_catalog.get_footprint("hq", "horizontal") != Vector2i(3, 3):
+		push_error("HQ should use the configured 3x3 footprint.")
+		quit(1)
+		return
+	if world.building_catalog.get_sprite_source_rect("hq", "horizontal").size == Vector2i.ZERO:
+		push_error("HQ should have an atlas sprite source rect.")
+		quit(1)
+		return
+	if world.building_catalog.get_model_config("hq").get("mesh_path", "") != "res://assets/3D/buildings/hq/base.obj":
+		push_error("HQ should be configured with the 3D OBJ model asset.")
+		quit(1)
+		return
 
 	var unit_layer := world.get_node_or_null("UnitLayer")
 	if unit_layer == null:
 		push_error("IsoWorld did not create UnitLayer.")
+		quit(1)
+		return
+	var unit_3d_layer := root.get_node_or_null("Unit3DLayer")
+	if unit_3d_layer == null:
+		push_error("Main scene should create Unit3DLayer for model-backed units.")
+		quit(1)
+		return
+	if unit_layer.unit_atlas == null:
+		push_error("UnitLayer should load the units object atlas.")
 		quit(1)
 		return
 
@@ -83,6 +291,19 @@ func _initialize() -> void:
 
 	if terrain_layer.atlas_image == null or terrain_layer.atlas_image.get_height() < 48:
 		push_error("Terrain atlas should include terrain, road, and mountain rows.")
+		quit(1)
+		return
+	var road_row_y := 16
+	if terrain_layer.atlas_image.get_pixel(0, road_row_y).a > 0.0:
+		push_error("Road atlas row should be transparent outside the road overlay art.")
+		quit(1)
+		return
+	if terrain_layer.atlas_image.get_pixel(16, road_row_y + 8).a <= 0.0:
+		push_error("Standalone road pad should render visible overlay pixels at tile center.")
+		quit(1)
+		return
+	if terrain_layer.atlas_image.get_pixel(32 + 24, road_row_y + 4).a <= 0.0:
+		push_error("North-connected road tile should render visible overlay pixels at its north endpoint.")
 		quit(1)
 		return
 
@@ -118,6 +339,65 @@ func _initialize() -> void:
 
 	if world.map_data.clearing_noise != 80:
 		push_error("Sandbox start did not apply clearing noise.")
+		quit(1)
+		return
+	var mountain_count := _count_terrain(world.map_data, 5)
+	if mountain_3d_layer.last_cells_processed != mountain_count:
+		push_error("Mountain3DLayer should process exactly the current mountain terrain tiles.")
+		quit(1)
+		return
+	if mountain_count > 0 and mountain_3d_layer.get_child_count() <= 0:
+		push_error("Mountain3DLayer should create a mesh instance when mountain terrain exists.")
+		quit(1)
+		return
+	if mountain_count > 0:
+		var mountain_instance := mountain_3d_layer.get_child(0) as MeshInstance3D
+		var mountain_arrays: Array = mountain_instance.mesh.surface_get_arrays(0)
+		var mountain_normals: PackedVector3Array = mountain_arrays[Mesh.ARRAY_NORMAL]
+		if mountain_normals.is_empty():
+			push_error("Mountain3DLayer should generate normals so sunlight can shade procedural massifs.")
+			quit(1)
+			return
+	var forest_count := _count_terrain(world.map_data, 1)
+	if forest_3d_layer.tree_meshes.size() <= 1:
+		push_error("Forest3DLayer should split the tree collection OBJ into multiple tree mesh variants.")
+		quit(1)
+		return
+	var tree_arrays: Array = forest_3d_layer.tree_meshes[0].surface_get_arrays(0)
+	var tree_normals: PackedVector3Array = tree_arrays[Mesh.ARRAY_NORMAL]
+	if tree_normals.is_empty():
+		push_error("Forest3DLayer tree meshes should keep or generate normals for lighting.")
+		quit(1)
+		return
+	if forest_3d_layer.last_cells_processed != forest_count:
+		push_error("Forest3DLayer should process exactly the current forest terrain tiles.")
+		quit(1)
+		return
+	if forest_count > 0 and forest_3d_layer.target_density > 0.0 and forest_3d_layer.get_child_count() <= 0:
+		push_error("Forest3DLayer should create tree multimesh instances when forest terrain exists.")
+		quit(1)
+		return
+	root.tree_density_spin_box.value = 25
+	root.tree_size_spin_box.value = 75
+	root._apply_forest_visual_settings()
+	if not is_equal_approx(forest_3d_layer.target_density, 0.25):
+		push_error("Sandbox Admin tree density control should update Forest3DLayer target density.")
+		quit(1)
+		return
+	if not is_equal_approx(forest_3d_layer.global_tree_scale, 0.75):
+		push_error("Sandbox Admin tree size control should update Forest3DLayer global scale.")
+		quit(1)
+		return
+	if forest_count > 0 and forest_3d_layer.get_child_count() <= 0:
+		push_error("Forest3DLayer should create tree multimesh instances when tree density is above zero.")
+		quit(1)
+		return
+	if root.game_hud_root.scale != Vector2.ONE:
+		push_error("Game HUD should keep stable 1.0 UI scale so font size is viewport-independent.")
+		quit(1)
+		return
+	if root.ui_root.theme.get_font_size("font_size", "Label") != 18:
+		push_error("UI theme should keep Label font size at 18px.")
 		quit(1)
 		return
 
@@ -165,10 +445,61 @@ func _initialize() -> void:
 		push_error("Game HUD root should ignore mouse events so map clicks reach IsoWorld.")
 		quit(1)
 		return
+	if root.resource_bar_panel == null or root.hq_metal_value_label == null:
+		push_error("Game HUD should include a top-center HQ metal resource bar.")
+		quit(1)
+		return
+	if root.hq_metal_value_label.text != "225":
+		push_error("HQ metal HUD should start with the initial HQ metal reserve.")
+		quit(1)
+		return
+	if world.colony_state.get_building_count("hq") != 1:
+		push_error("Sandbox should start with one preplaced HQ.")
+		quit(1)
+		return
+	var hq_models: Array[MeshInstance3D] = []
+	for child in building_3d_layer.get_children():
+		if child is MeshInstance3D and String(child.name).begins_with("Building3D_hq_"):
+			hq_models.append(child)
+	if hq_models.size() != 1:
+		push_error("Starting HQ should be rendered as one 3D building model instance; found %d." % hq_models.size())
+		quit(1)
+		return
+	var hq_model := hq_models[0]
+	if hq_model == null or hq_model.mesh == null:
+		push_error("3D HQ model instance should have a loaded mesh.")
+		quit(1)
+		return
+	if hq_model.material_override == null:
+		push_error("3D HQ model instance should have a texture material override.")
+		quit(1)
+		return
+	var hq_material := hq_model.material_override as StandardMaterial3D
+	if hq_material == null or not hq_material.normal_enabled or hq_material.normal_texture == null:
+		push_error("3D HQ material should use the configured normal texture so sunlight creates surface detail.")
+		quit(1)
+		return
+	if hq_material.roughness_texture == null or hq_material.metallic_texture == null:
+		push_error("3D HQ material should use configured roughness and metallic textures.")
+		quit(1)
+		return
+	var starting_hq: Dictionary = world.colony_state.get_nearest_building_of_type("hq", world.map_data.start_tile)
+	if starting_hq.get("origin", Vector2i.ZERO) != world.map_data.start_tile - Vector2i(1, 1):
+		push_error("Starting HQ should be centered on the middle of the map.")
+		quit(1)
+		return
+	if world.pathfinding_grid.is_tile_passable(world.map_data.start_tile):
+		push_error("Starting HQ footprint should block pathfinding at the map center.")
+		quit(1)
+		return
 
 	var background_fill := root.get_node("Background/ViewportFill") as Control
 	if background_fill.mouse_filter != Control.MOUSE_FILTER_IGNORE:
 		push_error("Background fill should ignore mouse events so map clicks reach IsoWorld.")
+		quit(1)
+		return
+	if root.background.visible:
+		push_error("Background canvas should be hidden in-game so it does not cover the 3D terrain renderer.")
 		quit(1)
 		return
 
@@ -182,8 +513,8 @@ func _initialize() -> void:
 		quit(1)
 		return
 
-	if _count_roads(world.map_data) != 0:
-		push_error("Sandbox start should not include demo roads.")
+	if _count_roads(world.map_data) != 1:
+		push_error("Sandbox start should only include the HQ vehicle approach road, not demo roads.")
 		quit(1)
 		return
 
@@ -210,17 +541,24 @@ func _initialize() -> void:
 
 	var road_tile: Vector2i = world.map_data.start_tile + Vector2i(2, 2)
 	root._select_build_tool("road")
-	var road_viewport_position: Vector2 = world.get_global_transform_with_canvas() * world.map_to_screen(road_tile)
+	var road_viewport_position: Vector2 = _tile_to_viewport(root, road_tile)
 	if input_controller.viewport_to_tile(road_viewport_position) != road_tile:
-		push_error("Viewport-to-tile conversion did not round-trip through camera transform.")
+		push_error("Viewport-to-tile conversion did not round-trip through the 3D camera transform.")
 		quit(1)
 		return
 	camera.position += Vector2(123, -57)
 	camera.set_zoom_level(3.0)
+	root._sync_terrain_3d_camera()
 	await process_frame
-	road_viewport_position = world.get_global_transform_with_canvas() * world.map_to_screen(road_tile)
+	road_viewport_position = _tile_to_viewport(root, road_tile)
 	if input_controller.viewport_to_tile(road_viewport_position) != road_tile:
 		push_error("Viewport-to-tile conversion failed after camera pan/zoom.")
+		quit(1)
+		return
+	root._on_camera_view_rotation_dragged(90.0)
+	road_viewport_position = _tile_to_viewport(root, road_tile)
+	if input_controller.viewport_to_tile(road_viewport_position) != road_tile:
+		push_error("Viewport-to-tile conversion failed after 3D camera rotation.")
 		quit(1)
 		return
 
@@ -255,6 +593,14 @@ func _initialize() -> void:
 	input_controller.primary_press_at_viewport(road_viewport_position, false)
 	if not world.map_data.has_road(road_tile):
 		push_error("Road construction tool did not paint a road.")
+		quit(1)
+		return
+	if not road_3d_layer.tile_mask_by_tile.has(road_tile):
+		push_error("3D road layer did not track the newly placed road tile.")
+		quit(1)
+		return
+	if road_3d_layer.last_cells_processed > 5:
+		push_error("3D road edit should recalculate only the edited road tile and its cardinal neighbors.")
 		quit(1)
 		return
 	if road_layer.last_cells_processed > 25:
@@ -297,10 +643,59 @@ func _initialize() -> void:
 		return
 
 	var oxygen_tile: Vector2i = _find_buildable_tile(world, "oxygen_extractor")
+	var hq_metal_before_oxygen: int = world.colony_state.get_hq_stored_metal()
 	root._select_build_tool("building:oxygen_extractor")
+	world.rotate_active_building()
+	if world.building_orientation != "vertical":
+		push_error("R/building rotation should toggle active building orientation.")
+		quit(1)
+		return
+	world.hover_tile(oxygen_tile)
+	root._sync_building_3d_preview()
+	if building_preview_3d_layer.preview_instance == null:
+		push_error("Modeled building placement should show a 3D ghost preview.")
+		quit(1)
+		return
+	if building_preview_3d_layer.preview_instance.mesh == null:
+		push_error("3D building placement preview should use the active building model mesh.")
+		quit(1)
+		return
+	if building_preview_3d_layer.footprint_root == null:
+		push_error("Modeled building placement should render a 3D footprint outline.")
+		quit(1)
+		return
+	if building_preview_3d_layer.footprint_root.get_child_count() != 16:
+		push_error("2x2 modeled building footprint should render four 3D tile outlines.")
+		quit(1)
+		return
 	world.paint_tile(oxygen_tile)
 	if world.colony_state.get_building_count("oxygen_extractor") != 1:
 		push_error("Oxygen extractor construction did not create a colony building.")
+		quit(1)
+		return
+	var oxygen_models: Array[MeshInstance3D] = []
+	for child in building_3d_layer.get_children():
+		if child is MeshInstance3D and String(child.name).begins_with("Building3D_oxygen_extractor_"):
+			oxygen_models.append(child)
+	if oxygen_models.size() != 1:
+		push_error("Placed Oxygen Extractor should render as one 3D model instance; found %d." % oxygen_models.size())
+		quit(1)
+		return
+	if world.colony_state.get_hq_stored_metal() != hq_metal_before_oxygen - 40:
+		push_error("Oxygen Extractor should spend 40 HQ metal.")
+		quit(1)
+		return
+	var oxygen_building: Dictionary = world.colony_state.buildings[world.colony_state.buildings.size() - 1]
+	if oxygen_building["orientation"] != "vertical":
+		push_error("Placed Oxygen Extractor should store the active orientation.")
+		quit(1)
+		return
+	if not oxygen_building.has("vehicle_entry_tile") or not oxygen_building.has("vehicle_approach_tile"):
+		push_error("Placed buildings should store vehicle entry and approach tiles.")
+		quit(1)
+		return
+	if not world.map_data.has_road(oxygen_building["vehicle_approach_tile"]):
+		push_error("Placed buildings should auto-connect a road at the vehicle approach tile when passable.")
 		quit(1)
 		return
 	if world.colony_state.get_oxygen_capacity() != 5:
@@ -333,10 +728,162 @@ func _initialize() -> void:
 		return
 
 	var machine_tile: Vector2i = _find_buildable_tile(world, "machine_park")
+	var hq_metal_before_machine: int = world.colony_state.get_hq_stored_metal()
 	root._select_build_tool("building:machine_park")
 	world.paint_tile(machine_tile)
 	if world.colony_state.get_digger_capacity() != 2:
 		push_error("Machine park should add two digger operator slots.")
+		quit(1)
+		return
+	if world.colony_state.get_hq_stored_metal() != hq_metal_before_machine - 60:
+		push_error("Machine Park should spend 60 HQ metal.")
+		quit(1)
+		return
+	var machine_models: Array[MeshInstance3D] = []
+	for child in building_3d_layer.get_children():
+		if child is MeshInstance3D and String(child.name).begins_with("Building3D_machine_park_"):
+			machine_models.append(child)
+	if machine_models.size() != 1:
+		push_error("Placed Machine Park should render as one 3D model instance; found %d." % machine_models.size())
+		quit(1)
+		return
+
+	var milling_tile: Vector2i = _find_buildable_tile(world, "milling_plant")
+	var hq_metal_before_milling: int = world.colony_state.get_hq_stored_metal()
+	root._select_build_tool("building:milling_plant")
+	world.paint_tile(milling_tile)
+	if world.colony_state.get_building_count("milling_plant") != 1:
+		push_error("Milling plant construction did not create a colony building.")
+		quit(1)
+		return
+	if world.colony_state.get_hq_stored_metal() != hq_metal_before_milling - 40:
+		push_error("Milling Plant should spend 40 HQ metal.")
+		quit(1)
+		return
+	var milling_building: Dictionary = world.colony_state.buildings[world.colony_state.buildings.size() - 1]
+	if milling_building.get("footprint", Vector2i.ZERO) != Vector2i(2, 3):
+		push_error("Placed Milling Plant should use the configured 2x3 footprint.")
+		quit(1)
+		return
+	var milling_models: Array[MeshInstance3D] = []
+	for child in building_3d_layer.get_children():
+		if child is MeshInstance3D and String(child.name).begins_with("Building3D_milling_plant_"):
+			milling_models.append(child)
+	if milling_models.size() != 1:
+		push_error("Placed Milling Plant should render as one 3D model instance; found %d." % milling_models.size())
+		quit(1)
+		return
+
+	world.cancel_active_placement()
+	world.primary_press_world(world.map_to_screen(machine_tile), machine_tile, false)
+	world.primary_release_world(world.map_to_screen(machine_tile), machine_tile)
+	if world.get_selected_building().get("type", "") != "machine_park":
+		push_error("Left-clicking a building footprint should select that building.")
+		quit(1)
+		return
+	var selected_machine_park_footprint: Vector2i = world.get_selected_building().get("footprint", Vector2i.ZERO)
+	if overlay_layer.selected_building_tiles.size() != selected_machine_park_footprint.x * selected_machine_park_footprint.y:
+		push_error("Selected Machine Park should draw selection outlines for each footprint tile.")
+		quit(1)
+		return
+	if not root.selected_building_panel.visible or not root.selected_building_title_label.text.contains("MACHINE PARK"):
+		push_error("Selecting Machine Park should open its building HUD.")
+		quit(1)
+		return
+	if root.build_drilling_machine_button.disabled:
+		push_error("Machine Park should enable Drilling Machine production when metal is available.")
+		quit(1)
+		return
+	var hq_metal_before_vehicle: int = world.colony_state.get_hq_stored_metal()
+	var units_before_vehicle: int = world.unit_state.workers.size()
+	root.build_drilling_machine_button.pressed.emit()
+	if world.unit_state.workers.size() != units_before_vehicle + 1:
+		push_error("Machine Park production should create a vehicle unit.")
+		quit(1)
+		return
+	if world.unit_state.workers[world.unit_state.workers.size() - 1].get("role", "") != "drilling_machine":
+		push_error("Machine Park Drilling Machine button should create a drilling_machine unit.")
+		quit(1)
+		return
+	var drilling_machine_id: int = int(world.unit_state.workers[world.unit_state.workers.size() - 1]["id"])
+	root._sync_unit_3d_layer()
+	if not unit_3d_layer.instance_by_unit_id.has(drilling_machine_id):
+		push_error("Drilling Machine should render through Unit3DLayer after production.")
+		quit(1)
+		return
+	if unit_3d_layer.variant_by_unit_id.get(drilling_machine_id, "") != "drilling_machine_empty":
+		push_error("Empty Drilling Machine should use the drilling_machine_empty 3D model variant.")
+		quit(1)
+		return
+	if world.colony_state.get_hq_stored_metal() != hq_metal_before_vehicle - 50:
+		push_error("Building a Drilling Machine should spend 50 HQ metal.")
+		quit(1)
+		return
+	var hq_metal_before_hauler: int = world.colony_state.get_hq_stored_metal()
+	var units_before_hauler: int = world.unit_state.workers.size()
+	root.build_hauler_button.pressed.emit()
+	if world.unit_state.workers.size() != units_before_hauler + 1:
+		push_error("Machine Park production should create a hauler unit.")
+		quit(1)
+		return
+	var hauler_unit: Dictionary = world.unit_state.workers[world.unit_state.workers.size() - 1]
+	if hauler_unit.get("role", "") != "hauler" or unit_layer._vehicle_source_rect(hauler_unit).size == Vector2i.ZERO:
+		push_error("Hauler should resolve to a sprite rect in units.png.")
+		quit(1)
+		return
+	root._sync_unit_3d_layer()
+	if not unit_3d_layer.instance_by_unit_id.has(int(hauler_unit["id"])):
+		push_error("Hauler should render through Unit3DLayer after production.")
+		quit(1)
+		return
+	if unit_3d_layer.variant_by_unit_id.get(int(hauler_unit["id"]), "") != "hauler_empty":
+		push_error("Empty Hauler should use the hauler_empty 3D model variant.")
+		quit(1)
+		return
+	if world.colony_state.get_hq_stored_metal() != hq_metal_before_hauler - 35:
+		push_error("Building a Hauler should spend 35 HQ metal.")
+		quit(1)
+		return
+	if world.colony_state.get_hq_stored_metal() != 0:
+		push_error("Initial HQ metal should be fully spent after the first MVP production chain.")
+		quit(1)
+		return
+	if not root.oxygen_extractor_button.disabled:
+		push_error("Building buttons should disable when HQ metal cannot cover their cost.")
+		quit(1)
+		return
+	if not root.build_drilling_machine_button.disabled:
+		push_error("Vehicle production buttons should disable when HQ metal cannot cover their cost.")
+		quit(1)
+		return
+	var oxygen_count_before_unaffordable_build: int = world.colony_state.get_building_count("oxygen_extractor")
+	var unaffordable_oxygen_tile: Vector2i = _find_buildable_tile(world, "oxygen_extractor")
+	root._select_build_tool("building:oxygen_extractor")
+	world.paint_tile(unaffordable_oxygen_tile)
+	if world.colony_state.get_building_count("oxygen_extractor") != oxygen_count_before_unaffordable_build:
+		push_error("Building placement should fail when HQ metal cannot cover the building cost.")
+		quit(1)
+		return
+	root._select_build_tool("none")
+	var hauler_id: int = int(hauler_unit["id"])
+	var empty_hauler_sprite_rect: Rect2i = unit_layer._vehicle_source_rect(hauler_unit)
+	hauler_unit["cargo"] = hauler_unit["cargo_capacity"]
+	if unit_layer._vehicle_source_rect(hauler_unit) == empty_hauler_sprite_rect:
+		push_error("Loaded Hauler should use a different full-cargo sprite rect.")
+		quit(1)
+		return
+	world.unit_state.workers[world.unit_state.workers.size() - 1] = hauler_unit
+	root._sync_unit_3d_layer()
+	if unit_3d_layer.variant_by_unit_id.get(hauler_id, "") != "hauler_filled":
+		push_error("Loaded Hauler should switch to the hauler_filled 3D model variant.")
+		quit(1)
+		return
+	var drilling_machine_unit: Dictionary = world.unit_state.get_unit_by_id(drilling_machine_id)
+	drilling_machine_unit["cargo"] = drilling_machine_unit["cargo_capacity"]
+	_set_unit_by_id(world.unit_state, drilling_machine_id, drilling_machine_unit)
+	root._sync_unit_3d_layer()
+	if unit_3d_layer.variant_by_unit_id.get(drilling_machine_id, "") != "drilling_machine_full":
+		push_error("Loaded Drilling Machine should switch to the drilling_machine_full 3D model variant.")
 		quit(1)
 		return
 	world.change_digger_operators(3)
@@ -350,11 +897,56 @@ func _initialize() -> void:
 		quit(1)
 		return
 
-	var milling_tile: Vector2i = _find_buildable_tile(world, "milling_plant")
-	root._select_build_tool("building:milling_plant")
-	world.paint_tile(milling_tile)
-	if world.colony_state.get_building_count("milling_plant") != 1:
-		push_error("Milling plant construction did not create a colony building.")
+	var hq_building: Dictionary = world.colony_state.get_nearest_building_of_type("hq", world.map_data.start_tile)
+	if not world.unit_state.select_unit_by_id(hauler_id):
+		push_error("The produced Hauler should remain selectable by id.")
+		quit(1)
+		return
+	world.secondary_press_world(world.map_to_screen(milling_tile), milling_tile)
+	hauler_unit = world.unit_state.get_unit_by_id(hauler_id)
+	if not ["travel_to_load_metal", "waiting_for_metal"].has(hauler_unit.get("order", "")):
+		push_error("Right-clicking an empty Milling Plant with a Hauler selected should assign a waitable metal transport order.")
+		quit(1)
+		return
+
+	if not world.unit_state.select_unit_by_id(drilling_machine_id):
+		push_error("The produced Drilling Machine should remain selectable by id.")
+		quit(1)
+		return
+	var metal_before_mining: int = int(world.colony_state.resources["metal"])
+	world.secondary_press_world(world.map_to_screen(blocked_road_tile), blocked_road_tile)
+	var drilling_machine: Dictionary = world.unit_state.get_unit_by_id(drilling_machine_id)
+	if drilling_machine.get("order", "") != "travel_to_mine":
+		push_error("Right-clicking mountain terrain with a Drilling Machine selected should assign a mining order.")
+		quit(1)
+		return
+	for step in 900:
+		world._process(0.10)
+		hq_building = world.colony_state.get_building_by_id(int(hq_building["id"]))
+		if int(hq_building.get("stored_metal", 0)) >= 20:
+			break
+	drilling_machine = world.unit_state.get_unit_by_id(drilling_machine_id)
+	if drilling_machine.get("order", "") == "idle":
+		push_error("Drilling Machine should keep repeating its assigned mine and dump loop.")
+		quit(1)
+		return
+	milling_building = world.colony_state.get_building_by_id(int(milling_building["id"]))
+	if int(world.colony_state.resources["metal"]) <= metal_before_mining:
+		push_error("Milling Plant should process deposited raw material into metal over time.")
+		quit(1)
+		return
+	hq_building = world.colony_state.get_building_by_id(int(hq_building["id"]))
+	if int(hq_building.get("stored_metal", 0)) < 20:
+		push_error("Hauler should wait for metal, load 20 metal, deliver it to HQ, and continue its route.")
+		quit(1)
+		return
+	if int(root.hq_metal_value_label.text) < 20:
+		push_error("Top-center HQ metal HUD should update after a Hauler delivery.")
+		quit(1)
+		return
+	hauler_unit = world.unit_state.get_unit_by_id(hauler_id)
+	if hauler_unit.get("order", "") == "idle":
+		push_error("Hauler should keep repeating the Milling Plant to HQ transport route after unloading.")
 		quit(1)
 		return
 	if overlay_layer._should_draw_selected_marker():
@@ -388,17 +980,17 @@ func _initialize() -> void:
 		quit(1)
 		return
 	root._select_build_tool("none")
-	var selection_rect: Rect2 = _worker_selection_rect(world)
-	world.primary_press_world(selection_rect.position, world.world_to_map(selection_rect.position), false)
-	world.primary_drag_world(selection_rect.position + selection_rect.size, world.world_to_map(selection_rect.position + selection_rect.size))
-	world.primary_release_world(selection_rect.position + selection_rect.size, world.world_to_map(selection_rect.position + selection_rect.size))
+	var selection_rect: Rect2 = _worker_selection_viewport_rect(root, world)
+	input_controller.primary_press_at_viewport(selection_rect.position, false)
+	input_controller.primary_drag_at_viewport(selection_rect.position + selection_rect.size)
+	input_controller.primary_release_at_viewport(selection_rect.position + selection_rect.size)
 	if not world.unit_state.has_selection():
-		push_error("Dragging without a build tool should select worker units.")
+		push_error("Dragging without a build tool should select worker units after 3D camera rotation.")
 		quit(1)
 		return
 	var worker_target: Vector2i = _find_passable_worker_target(world)
 	var revisions_before_move: int = world.unit_state.path_revisions
-	world.secondary_press_world(world.map_to_screen(worker_target), worker_target)
+	input_controller.secondary_press_at_viewport(_tile_to_viewport(root, worker_target))
 	if world.unit_state.path_revisions <= revisions_before_move:
 		push_error("Right-clicking the map with selected workers should issue a move command.")
 		quit(1)
@@ -408,8 +1000,9 @@ func _initialize() -> void:
 		quit(1)
 		return
 	var empty_click_tile: Vector2i = _find_empty_worker_click_tile(world)
-	world.primary_press_world(world.map_to_screen(empty_click_tile), empty_click_tile, false)
-	world.primary_release_world(world.map_to_screen(empty_click_tile), empty_click_tile)
+	var empty_click_viewport_position := _tile_to_viewport(root, empty_click_tile)
+	input_controller.primary_press_at_viewport(empty_click_viewport_position, false)
+	input_controller.primary_release_at_viewport(empty_click_viewport_position)
 	if world.unit_state.has_selection():
 		push_error("Left-clicking empty map space should clear worker selection.")
 		quit(1)
@@ -419,8 +1012,8 @@ func _initialize() -> void:
 	var line_start: Vector2i = road_line[0]
 	var line_end: Vector2i = road_line[1]
 	_assert_cardinal_path(world._line_tiles(world.map_data.start_tile + Vector2i(-4, -4), world.map_data.start_tile + Vector2i(-1, -1)))
-	var line_start_viewport_position: Vector2 = world.get_global_transform_with_canvas() * world.map_to_screen(line_start)
-	var line_end_viewport_position: Vector2 = world.get_global_transform_with_canvas() * world.map_to_screen(line_end)
+	var line_start_viewport_position: Vector2 = _tile_to_viewport(root, line_start)
+	var line_end_viewport_position: Vector2 = _tile_to_viewport(root, line_end)
 	root._select_build_tool("road")
 	input_controller.primary_press_at_viewport(line_start_viewport_position, true)
 	input_controller.primary_drag_at_viewport(line_end_viewport_position)
@@ -486,6 +1079,15 @@ func _count_roads(map_data: RefCounted) -> int:
 			if map_data.has_road(Vector2i(x, y)):
 				roads += 1
 	return roads
+
+
+func _count_terrain(map_data: RefCounted, terrain_id: int) -> int:
+	var count := 0
+	for y in map_data.size.y:
+		for x in map_data.size.x:
+			if map_data.get_terrain(Vector2i(x, y)) == terrain_id:
+				count += 1
+	return count
 
 
 func _find_buildable_tile(world: Node, building_type: String) -> Vector2i:
@@ -565,6 +1167,21 @@ func _worker_selection_rect(world: Node) -> Rect2:
 	return Rect2(min_point, max_point - min_point)
 
 
+func _worker_selection_viewport_rect(root: Node, world: Node) -> Rect2:
+	var min_point := Vector2(1.0e20, 1.0e20)
+	var max_point := Vector2(-1.0e20, -1.0e20)
+	for worker in world.unit_state.workers:
+		var position: Vector2 = worker["position"]
+		var point: Vector2 = root.camera_3d.unproject_position(Vector3(position.x, 0.0, position.y))
+		min_point.x = minf(min_point.x, point.x)
+		min_point.y = minf(min_point.y, point.y)
+		max_point.x = maxf(max_point.x, point.x)
+		max_point.y = maxf(max_point.y, point.y)
+	min_point -= Vector2(18, 18)
+	max_point += Vector2(18, 18)
+	return Rect2(min_point, max_point - min_point)
+
+
 func _selected_workers_have_unique_targets(world: Node) -> bool:
 	var targets := {}
 	var selected_count := 0
@@ -573,6 +1190,17 @@ func _selected_workers_have_unique_targets(world: Node) -> bool:
 			selected_count += 1
 			targets[worker["target_tile"]] = true
 	return selected_count > 1 and targets.size() > 1
+
+
+func _set_unit_by_id(unit_state: RefCounted, unit_id: int, next_unit: Dictionary) -> void:
+	for index in unit_state.workers.size():
+		if int(unit_state.workers[index]["id"]) == unit_id:
+			unit_state.workers[index] = next_unit
+			return
+
+
+func _tile_to_viewport(root: Node, tile: Vector2i) -> Vector2:
+	return root.camera_3d.unproject_position(Vector3(float(tile.x), 0.0, float(tile.y)))
 
 
 func _assert_cardinal_path(tiles: Array[Vector2i]) -> void:

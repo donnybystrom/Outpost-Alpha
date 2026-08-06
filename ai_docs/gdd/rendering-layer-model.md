@@ -13,6 +13,12 @@ Ground can contain static sublayers such as:
 
 Ground does not run per-frame gameplay logic. If a ground tile changes, it is because game code made an explicit request. Neighbor-dependent ground features, such as roads and mountain massifs, recalculate only the changed tile and the relevant nearby tiles.
 
+The current renderer migration renders base terrain through a 3D ground layer made from flat tile planes and an orthographic `Camera3D` synced to the existing isometric camera. Terrain colors come from `tile_visual_catalog.gd`. Forest terrain feeds a 3D forest layer that extracts individual tree variants from a collection OBJ and places seeded tree instances over forest tiles. Mountain terrain also feeds a procedural 3D massif layer that creates seeded heightfield meshes above mountain tiles. Roads render through a separate 3D road layer made from generated flat meshes and multimesh buckets keyed by the existing autotile masks. HQ, Oxygen Extractor, Machine Park, and Milling Plant are rendered through the 3D building model layer from OBJ assets while legacy-only buildings, workers, and some interaction overlays still render through the existing 2D layers during the migration. Input, placement, and simulation data remain unchanged while visual rendering moves toward 3D.
+
+The MVP 3D scene uses an angled `DirectionalLight3D` as a sun plus low ambient world lighting. Terrain, road, mountain, forest, and model-backed building materials are lit rather than unshaded. Procedural road meshes use upward normals, procedural mountains generate face normals, and extracted tree OBJ meshes retain OBJ normals when present. Realtime shadows are intentionally disabled by default because thousands of tree casters can become expensive; shadow quality, caster filtering, baked/static shadows, or blob/contact shadows should be evaluated as explicit visual-quality settings later.
+
+The 3D camera supports experimental view yaw rotation with Alt + middle mouse drag. The projection remains orthographic and the camera keeps the same tilt and zoom size while orbiting around world-up. During the renderer migration this only rotates the 3D scene layers; 2D overlays, unit sprites, and legacy object sprites still use the fixed isometric projection and should be migrated or explicitly projected through `Camera3D` before view rotation becomes a default gameplay feature.
+
 ## Layer 2: Buildings
 
 Buildings are placed above ground and have footprints, ownership, state, production, storage, crew requirements, and other gameplay logic.
@@ -21,11 +27,15 @@ Buildings are z-ordered against other buildings by their map position and footpr
 
 Buildings can affect navigation, line of sight, production, resources, jobs, and unit behavior, but they do not rewrite ground data unless a specific game rule explicitly requests it.
 
+Rendered building sprites come from an object atlas when available. Model-backed buildings come from optional `model` metadata in the same catalog. Placement and rendering share the same building catalog metadata: footprint, orientation, sprite/model source, anchor or transform offsets, and vehicle entry/approach tiles. If a building has `model` metadata, the 2D building layer skips its sprite and the 3D building layer owns its final rendering. The 3D placement preview layer also uses that model metadata to show a translucent model ghost and ground-plane footprint validation outlines for active building placement.
+
 ## Layer 3: Environment Objects
 
 Environment objects include trees, large rocks, wreckage, alien growths, cliffs, and similar objects that are not player buildings but still occupy space.
 
 They can have collision, blockers, cover values, harvestable resources, damage state, or z-ordering. They must not live in the building layer because they follow different ownership, placement, and lifecycle rules.
+
+The MVP forest renderer treats terrain id `1` as the tree placement mask. The terrain tile remains the gameplay blocker, while rendered tree instances are visual environment objects generated deterministically from the map seed. Sandbox Admin exposes visual tuning for target tree density and global tree size; those controls rebuild only the forest render layer and do not mutate map terrain data.
 
 ## Layer 4: Units
 
@@ -36,6 +46,8 @@ Units can read ground passability, road bonuses, building entrances, and environ
 Current MVP workers use a shared pathfinding grid built from `MapData` and `ColonyState`. Forest and mountain terrain are impassable. Placed building footprints are impassable. Roads reduce movement cost to 70% of normal ground, which means workers move 30% faster on roads and the pathfinder proportionally prefers routes that use them.
 
 When roads, buildings, or dev terrain edits change navigation data, all worker paths are recalculated. This is acceptable for the current small worker count. Later optimization should invalidate only units whose current or planned paths overlap the changed navigation region.
+
+Unit simulation remains 2D grid data even when visual rendering migrates to 3D. The MVP 3D unit layer reads `UnitState` and renders model-backed haulers and drilling machines from their current interpolated map position, facing, and cargo state. Empty haulers use `assets/3D/units/hauler_empty/base.obj`; loaded haulers use `assets/3D/units/hauler_filled/base.obj`. Empty drilling machines use `assets/3D/units/drilling_machine_empty/base.obj`; loaded drilling machines use `assets/3D/units/drilling_machine_full/base.obj`. Workers, selection helpers, and path overlays remain in the existing 2D unit/overlay layers until they are migrated.
 
 ## Non-Gameplay Overlay Layers
 

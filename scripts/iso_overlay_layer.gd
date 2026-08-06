@@ -3,6 +3,7 @@ extends Node2D
 const IsoTileRenderer := preload("res://scripts/iso_tile_renderer.gd")
 const AutoTile := preload("res://scripts/auto_tile.gd")
 const AutoTileAtlas := preload("res://scripts/autotile_atlas.gd")
+const BuildingCatalog := preload("res://scripts/building_catalog.gd")
 
 const TILE_SIZE := Vector2i(32, 16)
 const HALF_TILE := Vector2(TILE_SIZE.x / 2.0, TILE_SIZE.y / 2.0)
@@ -13,21 +14,39 @@ const PAINT_TOOL_BUILDING_PREFIX := "building:"
 
 var map_data: RefCounted
 var road_atlas: Texture2D
+var building_atlas: Texture2D
+var building_catalog = BuildingCatalog.new()
 var hovered_tile := Vector2i(-1, -1)
 var selected_tile := Vector2i(-1, -1)
 var paint_tool := PAINT_TOOL_NONE
+var building_orientation := BuildingCatalog.ORIENTATION_HORIZONTAL
 var dev_mode: bool = false
 var is_line_painting: bool = false
 var line_preview_tiles: Array[Vector2i] = []
 var placement_feedback: Array[Dictionary] = []
+var selected_building_tiles: Array[Vector2i] = []
 var selection_rect := Rect2()
 var selection_rect_visible := false
+var selection_rect_viewport_space := false
 
 var redraw_requests: int = 0
 var draw_calls: int = 0
 var last_draw_usec: int = 0
 var last_cells_processed: int = 0
 var last_redraw_reason: String = ""
+
+
+func _ready() -> void:
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_load_building_atlas()
+
+
+func set_building_catalog(next_building_catalog) -> void:
+	if next_building_catalog == null:
+		return
+	building_catalog = next_building_catalog
+	_load_building_atlas()
+	request_redraw("building_catalog")
 
 
 func set_map_data(next_map_data: RefCounted) -> void:
@@ -62,6 +81,13 @@ func set_paint_tool(next_tool: String, next_dev_mode: bool) -> void:
 	request_redraw("paint_tool")
 
 
+func set_building_orientation(next_orientation: String) -> void:
+	if building_orientation == next_orientation:
+		return
+	building_orientation = next_orientation
+	request_redraw("building_orientation")
+
+
 func set_line_preview(next_line_preview_tiles: Array[Vector2i], next_is_line_painting: bool) -> void:
 	line_preview_tiles = next_line_preview_tiles.duplicate()
 	is_line_painting = next_is_line_painting
@@ -73,6 +99,11 @@ func set_placement_feedback(next_placement_feedback: Array[Dictionary]) -> void:
 	request_redraw("placement_feedback")
 
 
+func set_selected_building_tiles(next_selected_building_tiles: Array[Vector2i]) -> void:
+	selected_building_tiles = next_selected_building_tiles.duplicate()
+	request_redraw("selected_building")
+
+
 func clear_line_preview() -> void:
 	if line_preview_tiles.is_empty() and not is_line_painting:
 		return
@@ -82,9 +113,10 @@ func clear_line_preview() -> void:
 	request_redraw("clear_line_preview")
 
 
-func set_selection_rect(rect: Rect2, visible: bool) -> void:
+func set_selection_rect(rect: Rect2, visible: bool, viewport_space: bool = false) -> void:
 	selection_rect = rect.abs()
 	selection_rect_visible = visible
+	selection_rect_viewport_space = viewport_space
 	request_redraw("selection_rect")
 
 
@@ -102,6 +134,7 @@ func _draw() -> void:
 	_draw_hover_marker()
 	_draw_build_preview()
 	_draw_line_preview()
+	_draw_selected_building()
 	_draw_selection_rect()
 
 	last_draw_usec = Time.get_ticks_usec() - started
@@ -138,7 +171,12 @@ func _draw_build_preview() -> void:
 				var preview_tiles: Array[Vector2i] = [hovered_tile]
 				_draw_road_preview_tile(hovered_tile, _road_preview_mask(hovered_tile, preview_tiles))
 			_draw_placement_feedback()
-	elif (paint_tool.begins_with(PAINT_TOOL_BUILDING_PREFIX) or (paint_tool.begins_with(PAINT_TOOL_TERRAIN_PREFIX) and dev_mode)) and _is_inside_map(hovered_tile):
+	elif paint_tool.begins_with(PAINT_TOOL_BUILDING_PREFIX) and _is_inside_map(hovered_tile):
+		var building_type := paint_tool.trim_prefix(PAINT_TOOL_BUILDING_PREFIX)
+		if building_catalog.get_model_config(building_type).is_empty():
+			_draw_building_sprite_preview(hovered_tile, building_type)
+			_draw_placement_feedback()
+	elif paint_tool.begins_with(PAINT_TOOL_TERRAIN_PREFIX) and dev_mode and _is_inside_map(hovered_tile):
 		_draw_placement_feedback()
 
 
@@ -156,8 +194,25 @@ func _draw_feedback_outline(feedback: Dictionary) -> void:
 func _draw_selection_rect() -> void:
 	if not selection_rect_visible:
 		return
+	if selection_rect_viewport_space:
+		var inverse_canvas := get_global_transform_with_canvas().affine_inverse()
+		var top_left: Vector2 = inverse_canvas * selection_rect.position
+		var top_right: Vector2 = inverse_canvas * (selection_rect.position + Vector2(selection_rect.size.x, 0.0))
+		var bottom_right: Vector2 = inverse_canvas * (selection_rect.position + selection_rect.size)
+		var bottom_left: Vector2 = inverse_canvas * (selection_rect.position + Vector2(0.0, selection_rect.size.y))
+		var points := PackedVector2Array([top_left, top_right, bottom_right, bottom_left])
+		draw_colored_polygon(points, Color(0.25, 0.85, 0.35, 0.10))
+		draw_polyline(PackedVector2Array([top_left, top_right, bottom_right, bottom_left, top_left]), Color(0.40, 1.0, 0.42, 0.78), 1.0)
+		return
 	draw_rect(selection_rect, Color(0.25, 0.85, 0.35, 0.10), true)
 	draw_rect(selection_rect, Color(0.40, 1.0, 0.42, 0.78), false, 1.0)
+
+
+func _draw_selected_building() -> void:
+	if selected_building_tiles.is_empty():
+		return
+	for tile in selected_building_tiles:
+		_draw_selection(tile, Color(0.40, 1.0, 0.42, 0.80), 1.0)
 
 
 func _draw_road_preview_tile(tile: Vector2i, road_mask: int) -> void:
@@ -173,6 +228,42 @@ func _draw_road_preview_tile(tile: Vector2i, road_mask: int) -> void:
 	var source_rect: Rect2 = Rect2(Vector2(Vector2i(AutoTileAtlas.road_column(road_mask), IsoTileRenderer.ROAD_ATLAS_ROW) * TILE_SIZE), Vector2(TILE_SIZE))
 	var target_rect: Rect2 = Rect2(map_to_screen(tile) - HALF_TILE, Vector2(TILE_SIZE))
 	draw_texture_rect_region(road_atlas, target_rect, source_rect, Color(1.0, 1.0, 1.0, 0.46))
+
+
+func _draw_building_sprite_preview(tile: Vector2i, building_type: String) -> void:
+	if not building_catalog.get_model_config(building_type).is_empty():
+		return
+	if building_atlas == null:
+		return
+	var source_rect: Rect2i = building_catalog.get_sprite_source_rect(building_type, building_orientation)
+	if source_rect.size == Vector2i.ZERO:
+		return
+	var anchor: Vector2 = building_catalog.get_sprite_anchor(building_type, building_orientation)
+	var screen_offset: Vector2 = building_catalog.get_sprite_screen_offset(building_type)
+	var target_rect := Rect2(map_to_screen(tile) + screen_offset - anchor, Vector2(source_rect.size))
+	_draw_texture_region(
+		building_atlas,
+		target_rect,
+		Rect2(source_rect),
+		Color(1.0, 1.0, 1.0, 0.52),
+		building_catalog.should_flip_sprite_horizontal(building_type, building_orientation)
+	)
+
+
+func _draw_texture_region(texture: Texture2D, target_rect: Rect2, source_rect: Rect2, color: Color, flip_horizontal: bool) -> void:
+	if not flip_horizontal:
+		draw_texture_rect_region(texture, target_rect, source_rect, color)
+		return
+
+	draw_set_transform(target_rect.position + Vector2(target_rect.size.x, 0.0), 0.0, Vector2(-1.0, 1.0))
+	draw_texture_rect_region(texture, Rect2(Vector2.ZERO, target_rect.size), source_rect, color)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _load_building_atlas() -> void:
+	building_atlas = null
+	if building_catalog != null and ResourceLoader.exists(building_catalog.atlas_path()):
+		building_atlas = load(building_catalog.atlas_path()) as Texture2D
 
 
 func _draw_selection(tile: Vector2i, color: Color, width: float = 1.0) -> void:

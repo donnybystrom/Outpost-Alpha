@@ -4,8 +4,10 @@ const IsoWorld := preload("res://scripts/iso_world.gd")
 
 var world: IsoWorld
 var camera: Camera2D
+var camera_3d: Camera3D
 var active: bool = false
 var primary_button_down: bool = false
+var primary_uses_viewport_selection := false
 var primary_press_viewport_position := Vector2.ZERO
 var conversion_calls: int = 0
 var last_conversion_usec: int = 0
@@ -16,14 +18,16 @@ func _ready() -> void:
 	set_active(active)
 
 
-func configure(target_world: IsoWorld, target_camera: Camera2D) -> void:
+func configure(target_world: IsoWorld, target_camera: Camera2D, target_camera_3d: Camera3D = null) -> void:
 	world = target_world
 	camera = target_camera
+	camera_3d = target_camera_3d
 
 
 func set_active(next_active: bool) -> void:
 	active = next_active
 	primary_button_down = false
+	primary_uses_viewport_selection = false
 	set_process_unhandled_input(active)
 	process_mode = Node.PROCESS_MODE_INHERIT if active else Node.PROCESS_MODE_DISABLED
 
@@ -31,7 +35,26 @@ func set_active(next_active: bool) -> void:
 func viewport_to_world(viewport_position: Vector2) -> Vector2:
 	if world == null:
 		return Vector2.ZERO
+	if _can_project_from_3d_camera():
+		return world.map_position_to_screen(viewport_to_map_position(viewport_position))
 	return world.get_global_transform_with_canvas().affine_inverse() * viewport_position
+
+
+func viewport_to_map_position(viewport_position: Vector2) -> Vector2:
+	if not _can_project_from_3d_camera():
+		if world == null:
+			return Vector2.ZERO
+		var world_position := world.get_global_transform_with_canvas().affine_inverse() * viewport_position
+		var tile := world.world_to_map(world_position)
+		return Vector2(tile)
+
+	var ray_origin := camera_3d.project_ray_origin(viewport_position)
+	var ray_direction := camera_3d.project_ray_normal(viewport_position)
+	if absf(ray_direction.y) <= 0.0001:
+		return Vector2.ZERO
+	var distance := -ray_origin.y / ray_direction.y
+	var point := ray_origin + ray_direction * distance
+	return Vector2(point.x, point.z)
 
 
 func viewport_to_tile(viewport_position: Vector2) -> Vector2i:
@@ -39,10 +62,27 @@ func viewport_to_tile(viewport_position: Vector2) -> Vector2i:
 	if world == null:
 		last_conversion_usec = Time.get_ticks_usec() - started
 		return Vector2i(-1, -1)
-	var tile: Vector2i = world.world_to_map(viewport_to_world(viewport_position))
+	var tile: Vector2i
+	if _can_project_from_3d_camera():
+		var map_position := viewport_to_map_position(viewport_position)
+		tile = Vector2i(roundi(map_position.x), roundi(map_position.y))
+	else:
+		tile = world.world_to_map(viewport_to_world(viewport_position))
 	last_conversion_usec = Time.get_ticks_usec() - started
 	conversion_calls += 1
 	return tile
+
+
+func map_position_to_viewport(map_position: Vector2) -> Vector2:
+	if _can_project_from_3d_camera():
+		return camera_3d.unproject_position(Vector3(map_position.x, 0.0, map_position.y))
+	if world == null:
+		return Vector2.ZERO
+	return world.get_global_transform_with_canvas() * world.map_position_to_screen(map_position)
+
+
+func _can_project_from_3d_camera() -> bool:
+	return camera_3d != null and camera_3d.current and camera_3d.visible
 
 
 func hover_at_viewport(viewport_position: Vector2) -> void:
@@ -55,28 +95,44 @@ func primary_press_at_viewport(viewport_position: Vector2, line_mode: bool) -> v
 	if not active or world == null:
 		return
 	primary_button_down = true
+	primary_uses_viewport_selection = _should_use_viewport_selection()
 	primary_press_viewport_position = viewport_position
-	world.primary_press_world(viewport_to_world(viewport_position), viewport_to_tile(viewport_position), line_mode)
+	if primary_uses_viewport_selection:
+		world.primary_press_viewport(viewport_position, viewport_to_tile(viewport_position), line_mode, Callable(self, "map_position_to_viewport"))
+	else:
+		world.primary_press_world(viewport_to_world(viewport_position), viewport_to_tile(viewport_position), line_mode)
 
 
 func primary_drag_at_viewport(viewport_position: Vector2) -> void:
 	if not active or world == null or not primary_button_down:
 		return
-	world.primary_drag_world(viewport_to_world(viewport_position), viewport_to_tile(viewport_position))
+	if primary_uses_viewport_selection:
+		world.primary_drag_viewport(viewport_position, viewport_to_tile(viewport_position))
+	else:
+		world.primary_drag_world(viewport_to_world(viewport_position), viewport_to_tile(viewport_position))
 
 
 func primary_release_at_viewport(viewport_position: Vector2) -> void:
 	if not active or world == null:
 		return
 	primary_button_down = false
-	world.primary_release_world(viewport_to_world(viewport_position), viewport_to_tile(viewport_position))
+	if primary_uses_viewport_selection:
+		world.primary_release_viewport(viewport_position, viewport_to_tile(viewport_position))
+	else:
+		world.primary_release_world(viewport_to_world(viewport_position), viewport_to_tile(viewport_position))
+	primary_uses_viewport_selection = false
 
 
 func secondary_press_at_viewport(viewport_position: Vector2) -> void:
 	if not active or world == null:
 		return
 	primary_button_down = false
+	primary_uses_viewport_selection = false
 	world.secondary_press_world(viewport_to_world(viewport_position), viewport_to_tile(viewport_position))
+
+
+func _should_use_viewport_selection() -> bool:
+	return _can_project_from_3d_camera() and world != null and world.paint_tool == "none"
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -103,3 +159,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var key: InputEventKey = event as InputEventKey
 		if key.pressed and not key.echo and key.keycode == KEY_G:
 			world.toggle_grid()
+		elif key.pressed and not key.echo and key.keycode == KEY_R:
+			world.rotate_active_building()
+		elif key.pressed and not key.echo and key.keycode == KEY_F5:
+			world.reload_building_catalog()

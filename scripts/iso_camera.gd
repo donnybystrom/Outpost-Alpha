@@ -1,5 +1,8 @@
 extends Camera2D
 
+signal view_rotation_dragged(relative_pixels: float)
+signal pan_dragged(relative_pixels: Vector2, previous_position: Vector2, current_position: Vector2)
+
 const PAN_SPEED := 520.0
 const DRAG_SPEED := 1.0
 const ZOOM_STEP := 1.12
@@ -7,7 +10,9 @@ const MIN_ZOOM := 0.65
 const MAX_ZOOM := 4.0
 
 var _dragging := false
+var _rotating := false
 var _last_mouse_position := Vector2.ZERO
+var external_pan_enabled := false
 
 
 func _ready() -> void:
@@ -35,16 +40,24 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mouse_button := event as InputEventMouseButton
 		if mouse_button.button_index == MOUSE_BUTTON_MIDDLE:
-			_dragging = mouse_button.pressed
+			_rotating = mouse_button.pressed and mouse_button.alt_pressed
+			_dragging = mouse_button.pressed and not _rotating
 			_last_mouse_position = mouse_button.position
 		elif mouse_button.pressed and mouse_button.button_index == MOUSE_BUTTON_WHEEL_UP:
 			_set_zoom(zoom.x * ZOOM_STEP, mouse_button.position)
 		elif mouse_button.pressed and mouse_button.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			_set_zoom(zoom.x / ZOOM_STEP, mouse_button.position)
 
-	if event is InputEventMouseMotion and _dragging:
+	if event is InputEventMouseMotion and (_dragging or _rotating):
 		var mouse_motion := event as InputEventMouseMotion
-		position -= mouse_motion.relative * DRAG_SPEED / zoom.x
+		if _rotating or mouse_motion.alt_pressed:
+			_dragging = false
+			_rotating = true
+			view_rotation_dragged.emit(mouse_motion.relative.x)
+		elif external_pan_enabled:
+			pan_dragged.emit(mouse_motion.relative, _last_mouse_position, mouse_motion.position)
+		else:
+			position -= mouse_motion.relative * DRAG_SPEED / zoom.x
 		_last_mouse_position = mouse_motion.position
 
 
@@ -59,3 +72,7 @@ func _set_zoom(next_zoom: float, screen_anchor: Vector2) -> void:
 func set_zoom_level(next_zoom: float) -> void:
 	next_zoom = clampf(next_zoom, MIN_ZOOM, MAX_ZOOM)
 	zoom = Vector2(next_zoom, next_zoom)
+
+
+func set_external_pan_enabled(enabled: bool) -> void:
+	external_pan_enabled = enabled

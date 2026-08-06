@@ -6,7 +6,7 @@ Outpost Alpha separates UI intent, viewport input, map projection, and game comm
 
 1. UI buttons select placement intent, such as `Road`, `living_quarters`, or another buildable object.
 2. `MapInputController` receives unhandled viewport input that was not consumed by UI controls.
-3. The controller converts viewport coordinates to world coordinates with Godot's canvas transform.
+3. The controller converts viewport coordinates to map coordinates. With the active 3D world camera it projects a ray from `Camera3D` through the pointer to the ground plane; otherwise it falls back to Godot's 2D canvas transform.
 4. `IsoWorld.world_to_map()` converts world coordinates to map tile coordinates.
 5. `IsoWorld` applies game commands such as hover, select, road paint, and line preview.
 6. `MapData` stores terrain and road state.
@@ -18,10 +18,20 @@ Outpost Alpha separates UI intent, viewport input, map projection, and game comm
 | Space | Example Owner | Purpose |
 | --- | --- | --- |
 | Viewport | `InputEventMouseButton.position` | Raw pointer/touch position inside the game window. |
-| World | `Camera2D` canvas transform | Camera-aware 2D scene coordinates after pan and zoom. |
+| World | `Camera2D` canvas transform | Camera-aware 2D scene coordinates after pan and zoom for legacy 2D overlays. |
+| Ground plane | `Camera3D` ray against `y = 0` | Camera-aware 3D map position after pan, zoom, and view rotation. |
 | Map tile | `Vector2i(x, y)` | Gameplay address used by terrain, roads, selection, and commands. |
 
-The viewport-to-world conversion is:
+The 3D viewport-to-map conversion is the default while the orthographic 3D camera is active:
+
+```gdscript
+ray_origin = camera_3d.project_ray_origin(viewport_position)
+ray_direction = camera_3d.project_ray_normal(viewport_position)
+point = ray_origin + ray_direction * (-ray_origin.y / ray_direction.y)
+tile = Vector2i(roundi(point.x), roundi(point.z))
+```
+
+The legacy 2D viewport-to-world conversion is:
 
 ```gdscript
 world.get_global_transform_with_canvas().affine_inverse() * viewport_position
@@ -36,6 +46,10 @@ tile = Vector2i(floori(map_x + 0.5), floori(map_y + 0.5))
 ```
 
 This keeps camera zoom, window resize, and viewport expansion outside gameplay math. Future mobile and controller input should feed the same controller/command path, either by passing viewport positions from touch or by moving a virtual cursor/focused tile and calling the same world command methods.
+
+Selection rectangles are screen-space interactions. While the 3D camera is active, drag-selection stores the raw viewport rectangle and tests units against their current `Camera3D.unproject_position()` screen positions. That keeps Command & Conquer-style selection stable after camera rotation instead of treating the rectangle as a rotated ground-plane area.
+
+Middle-mouse pan is also ground-plane aware in the 3D view. The camera compares the map position under the previous pointer location with the map position under the current pointer location, then moves the camera center by that map delta. This keeps “grab and drag the world” behavior consistent regardless of yaw.
 
 ## Placement Cancellation
 

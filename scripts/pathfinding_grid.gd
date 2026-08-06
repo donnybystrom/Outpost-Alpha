@@ -4,6 +4,9 @@ const TERRAIN_FOREST := 1
 const TERRAIN_MOUNTAIN := 5
 const ROAD_COST := 0.70
 const DEFAULT_COST := 1.0
+const PATH_SAMPLE_SPACING := 0.10
+const SMOOTHING_COST_TOLERANCE := 1.03
+const SMOOTHING_ROAD_FRACTION_TOLERANCE := 0.15
 
 const CARDINAL_DIRECTIONS: Array[Vector2i] = [
 	Vector2i(0, -1),
@@ -77,6 +80,57 @@ func is_fast_tile(tile: Vector2i) -> bool:
 	return map_data != null and map_data.has_road(tile)
 
 
+func smooth_path(start_position: Vector2, raw_path: Array[Vector2i], agent_radius: float) -> Array[Vector2]:
+	var smoothed: Array[Vector2] = []
+	if raw_path.is_empty():
+		return smoothed
+
+	var points: Array[Vector2] = [start_position]
+	for tile in raw_path:
+		points.append(Vector2(tile))
+
+	var source_index := 0
+	while source_index < points.size() - 1:
+		var destination_index := points.size() - 1
+		while destination_index > source_index + 1:
+			if _can_smooth_between(points, source_index, destination_index, agent_radius):
+				break
+			destination_index -= 1
+		smoothed.append(points[destination_index])
+		source_index = destination_index
+	return smoothed
+
+
+func has_clear_path_segment(start_position: Vector2, end_position: Vector2, agent_radius: float) -> bool:
+	var distance := start_position.distance_to(end_position)
+	var sample_count := maxi(1, ceili(distance / PATH_SAMPLE_SPACING))
+	for sample_index in range(sample_count + 1):
+		var weight := float(sample_index) / float(sample_count)
+		if not is_position_passable(start_position.lerp(end_position, weight), agent_radius):
+			return false
+	return true
+
+
+func is_position_passable(position: Vector2, agent_radius: float = 0.0) -> bool:
+	var center_tile := _tile_for_position(position)
+	if agent_radius <= 0.001:
+		return is_tile_passable(center_tile)
+
+	var search_radius := ceili(agent_radius + 0.5)
+	for y in range(center_tile.y - search_radius, center_tile.y + search_radius + 1):
+		for x in range(center_tile.x - search_radius, center_tile.x + search_radius + 1):
+			var tile := Vector2i(x, y)
+			if is_tile_passable(tile):
+				continue
+			var closest_point := Vector2(
+				clampf(position.x, float(x) - 0.5, float(x) + 0.5),
+				clampf(position.y, float(y) - 0.5, float(y) + 0.5)
+			)
+			if position.distance_squared_to(closest_point) < agent_radius * agent_radius:
+				return false
+	return true
+
+
 func _passable_neighbors(tile: Vector2i) -> Array[Vector2i]:
 	var neighbors: Array[Vector2i] = []
 	for direction in CARDINAL_DIRECTIONS:
@@ -107,3 +161,56 @@ func _reconstruct_path(came_from: Dictionary, current: Vector2i) -> Array[Vector
 
 func _heuristic(a: Vector2i, b: Vector2i) -> float:
 	return float(absi(a.x - b.x) + absi(a.y - b.y)) * ROAD_COST
+
+
+func _can_smooth_between(points: Array[Vector2], source_index: int, destination_index: int, agent_radius: float) -> bool:
+	var start_position := points[source_index]
+	var end_position := points[destination_index]
+	if not has_clear_path_segment(start_position, end_position, agent_radius):
+		return false
+
+	var original_cost := 0.0
+	var original_distance := 0.0
+	var original_road_distance := 0.0
+	for index in range(source_index + 1, destination_index + 1):
+		var segment_distance := points[index - 1].distance_to(points[index])
+		original_distance += segment_distance
+		var tile := _tile_for_position(points[index])
+		original_cost += segment_distance * movement_cost(tile)
+		if is_fast_tile(tile):
+			original_road_distance += segment_distance
+	if original_distance > 0.001:
+		var original_road_fraction := original_road_distance / original_distance
+		if _segment_road_fraction(start_position, end_position) + SMOOTHING_ROAD_FRACTION_TOLERANCE < original_road_fraction:
+			return false
+	var direct_cost := _segment_movement_cost(start_position, end_position)
+	return direct_cost <= original_cost * SMOOTHING_COST_TOLERANCE
+
+
+func _segment_movement_cost(start_position: Vector2, end_position: Vector2) -> float:
+	var distance := start_position.distance_to(end_position)
+	if distance <= 0.001:
+		return 0.0
+	var sample_count := maxi(1, ceili(distance / 0.25))
+	var cost := 0.0
+	for sample_index in range(sample_count):
+		var weight := (float(sample_index) + 0.5) / float(sample_count)
+		cost += movement_cost(_tile_for_position(start_position.lerp(end_position, weight)))
+	return distance * cost / float(sample_count)
+
+
+func _segment_road_fraction(start_position: Vector2, end_position: Vector2) -> float:
+	var distance := start_position.distance_to(end_position)
+	if distance <= 0.001:
+		return 1.0 if is_fast_tile(_tile_for_position(start_position)) else 0.0
+	var sample_count := maxi(1, ceili(distance / 0.25))
+	var road_samples := 0
+	for sample_index in range(sample_count):
+		var weight := (float(sample_index) + 0.5) / float(sample_count)
+		if is_fast_tile(_tile_for_position(start_position.lerp(end_position, weight))):
+			road_samples += 1
+	return float(road_samples) / float(sample_count)
+
+
+func _tile_for_position(position: Vector2) -> Vector2i:
+	return Vector2i(floori(position.x + 0.5), floori(position.y + 0.5))

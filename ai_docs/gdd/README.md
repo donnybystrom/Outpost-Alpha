@@ -8,21 +8,23 @@ Outpost Alpha is an isometric survival/economic RTS about establishing a colony 
 
 ## Current UX Flow
 
-1. Main menu with a visual colony/alien-world backdrop.
+1. Main menu with a visual colony/alien-world backdrop from `assets/start_screen_background.png`.
 2. `Sandbox` starts the actual game sandbox directly, with no prebuilt demo roads.
 3. `Dev Mode` starts the same renderer with demo roads/objects and extra tile painting tools.
 4. The in-game admin panel is hidden by default and toggled with ` / §.
 5. Generated world with tile selection, pan/zoom, debug status HUD, and a bottom construction menu.
 
+The current MVP music system starts `assets/audio/music/orbital_quiet.mp3` on the main menu, loops it, and keeps it playing when the player enters Sandbox. Playback can be disabled during development in `config/runtime.cfg`. This is a placeholder for a later adaptive music manager that can crossfade tracks by game intensity.
+
 ## Current Build Interaction
 
 Sandbox currently exposes road construction and four colony buildings: `oxygen_extractor`, `living_quarters`, `machine_park`, and `milling_plant`. Selecting `Road` in the bottom construction menu lets the player paint roads tile by tile. Road mode shows a translucent road preview and green isometric outline over the tile under the cursor. Holding `Shift` while dragging creates a green isometric preview line; the road tiles are committed when the mouse button is released.
 
-Buildings are a separate layer above terrain. They use footprints, can block road painting, and update colony state without rewriting terrain.
+Buildings are a separate layer above terrain. They use footprints, orientation, object-atlas sprite metadata, vehicle entry/approach metadata, can block road painting, and update colony state without rewriting terrain.
 
 ## Documentation Practice
 
-When gameplay direction changes, add or update a document in `docs/gdd/`. When implementation changes affect design assumptions or player-facing behavior, add a short note in `docs/devlog/CHANGELOG.md`.
+When gameplay direction changes, add or update a document in `ai_docs/gdd/`. When implementation changes affect design assumptions or player-facing behavior, add a short note in `ai_docs/devlog/CHANGELOG.md`.
 
 ## Topic Notes
 
@@ -31,3 +33,4 @@ When gameplay direction changes, add or update a document in `docs/gdd/`. When i
 - [Sandbox colony loop](sandbox-colony-loop.md)
 - [Rendering and simulation layer model](rendering-layer-model.md)
 - [Tileset workflow](tileset-workflow.md)
+- [Building object config](building-object-config.md)
