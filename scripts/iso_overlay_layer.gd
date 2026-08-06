@@ -7,6 +7,7 @@ const TILE_SIZE := Vector2i(32, 16)
 const HALF_TILE := Vector2(TILE_SIZE.x / 2.0, TILE_SIZE.y / 2.0)
 const PAINT_TOOL_NONE := "none"
 const PAINT_TOOL_ROAD := "road"
+const PAINT_TOOL_ROAD_DELETE := "road_delete"
 const PAINT_TOOL_TERRAIN_PREFIX := "terrain:"
 const PAINT_TOOL_BUILDING_PREFIX := "building:"
 
@@ -175,6 +176,8 @@ func _draw_build_preview() -> void:
 				var preview_tiles: Array[Vector2i] = [hovered_tile]
 				_draw_road_preview_tile(hovered_tile, _road_preview_mask(hovered_tile, preview_tiles))
 			_draw_placement_feedback()
+	elif paint_tool == PAINT_TOOL_ROAD_DELETE and _is_inside_map(hovered_tile):
+		_draw_placement_feedback()
 	elif paint_tool.begins_with(PAINT_TOOL_BUILDING_PREFIX) and _is_inside_map(hovered_tile):
 		var building_type := paint_tool.trim_prefix(PAINT_TOOL_BUILDING_PREFIX)
 		if building_catalog.get_model_config(building_type).is_empty():
@@ -191,7 +194,11 @@ func _draw_placement_feedback() -> void:
 
 func _draw_feedback_outline(feedback: Dictionary) -> void:
 	var tile: Vector2i = feedback["tile"]
-	var color: Color = Color8(72, 230, 84, 215) if bool(feedback["valid"]) else Color8(230, 56, 54, 220)
+	var color: Color
+	if paint_tool == PAINT_TOOL_ROAD_DELETE:
+		color = Color8(238, 80, 62, 225) if bool(feedback["valid"]) else Color8(125, 70, 66, 180)
+	else:
+		color = Color8(72, 230, 84, 215) if bool(feedback["valid"]) else Color8(230, 56, 54, 220)
 	_draw_selection(tile, color, 2.0)
 
 

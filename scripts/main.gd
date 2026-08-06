@@ -73,6 +73,9 @@ var hq_metal_value_label: Label
 var sharon_panel: PanelContainer
 var game_title_label: Label
 var construction_panel: PanelContainer
+var road_submenu_panel: PanelContainer
+var road_build_mode_button: Button
+var road_delete_mode_button: Button
 var selected_building_panel: PanelContainer
 var selected_building_title_label: Label
 var selected_building_stats_label: Label
@@ -695,6 +698,7 @@ func _build_construction_menu() -> void:
 	milling_plant_button = _add_tool_button(build_row, "Milling 40", "building:milling_plant")
 	hq_button = _add_tool_button(build_row, "HQ", "building:hq")
 	road_tool_button = _add_tool_button(build_row, "Road", "road")
+	_build_road_submenu()
 
 	dev_tools_row = HBoxContainer.new()
 	dev_tools_row.add_theme_constant_override("separation", 8)
@@ -708,6 +712,39 @@ func _build_construction_menu() -> void:
 	_add_tool_button(dev_tools_row, "Mountain", "terrain:5")
 
 	_build_sharon_briefing()
+
+
+func _build_road_submenu() -> void:
+	road_submenu_panel = PanelContainer.new()
+	road_submenu_panel.name = "RoadSubmenuPanel"
+	road_submenu_panel.visible = false
+	road_submenu_panel.custom_minimum_size = Vector2(300, 52)
+	game_hud_root.add_child(road_submenu_panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 10)
+	margin.add_theme_constant_override("margin_top", 8)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_bottom", 8)
+	road_submenu_panel.add_child(margin)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	margin.add_child(row)
+
+	road_build_mode_button = Button.new()
+	road_build_mode_button.text = "Build road"
+	road_build_mode_button.toggle_mode = true
+	road_build_mode_button.custom_minimum_size = Vector2(132, 32)
+	road_build_mode_button.pressed.connect(_select_build_tool.bind("road"))
+	row.add_child(road_build_mode_button)
+
+	road_delete_mode_button = Button.new()
+	road_delete_mode_button.text = "Delete road"
+	road_delete_mode_button.toggle_mode = true
+	road_delete_mode_button.custom_minimum_size = Vector2(132, 32)
+	road_delete_mode_button.pressed.connect(_select_build_tool.bind("road_delete"))
+	row.add_child(road_delete_mode_button)
 
 
 func _build_selected_building_panel() -> void:
@@ -1140,7 +1177,14 @@ func _select_build_tool(tool_id: String) -> void:
 
 func _sync_tool_buttons(tool_id: String) -> void:
 	for button in tool_buttons:
-		button.button_pressed = button.get_meta("tool_id", "") == tool_id
+		var button_tool: String = button.get_meta("tool_id", "")
+		button.button_pressed = button_tool == tool_id or (button_tool == "road" and tool_id == "road_delete")
+	if road_submenu_panel != null:
+		var road_mode_active := tool_id == "road" or tool_id == "road_delete"
+		road_submenu_panel.visible = road_mode_active
+		road_build_mode_button.button_pressed = tool_id == "road"
+		road_delete_mode_button.button_pressed = tool_id == "road_delete"
+		_queue_responsive_layout()
 
 
 func _change_role_assignment(role: String, delta: int) -> void:
@@ -1278,6 +1322,14 @@ func _layout_game_hud(viewport_size: Vector2) -> void:
 		logical_size.y - construction_size.y - HUD_MARGIN
 	)
 	construction_panel.size = construction_size
+
+	if road_submenu_panel != null and road_submenu_panel.visible:
+		var road_submenu_size := road_submenu_panel.custom_minimum_size
+		road_submenu_panel.position = Vector2(
+			(logical_size.x - road_submenu_size.x) * 0.5,
+			construction_panel.position.y - road_submenu_size.y - 8.0
+		)
+		road_submenu_panel.size = road_submenu_size
 
 
 func _update_viewport_status(viewport_size: Vector2) -> void:

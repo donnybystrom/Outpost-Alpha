@@ -34,9 +34,12 @@ const TERRAIN_NAMES := {
 }
 const PAINT_TOOL_NONE := "none"
 const PAINT_TOOL_ROAD := "road"
+const PAINT_TOOL_ROAD_DELETE := "road_delete"
 const PAINT_TOOL_TERRAIN_PREFIX := "terrain:"
 const PAINT_TOOL_BUILDING_PREFIX := "building:"
 const BUILDING_CATALOG_HOT_RELOAD_INTERVAL := 0.5
+const ROAD_PATH_SEARCH_MARGIN := 12
+const EXISTING_ROAD_PATH_WEIGHT := 0.82
 
 var map_data: RefCounted
 var building_catalog
@@ -77,6 +80,8 @@ var draw_calls: int = 0
 var last_draw_usec: int = 0
 var last_cells_processed: int = 0
 var last_redraw_reason: String = ""
+var last_road_preview_used_pathfinding := false
+var road_preview_pathfind_requests := 0
 var _building_catalog_hot_reload_elapsed := 0.0
 var _building_catalog_modified_time := 0
 
@@ -268,6 +273,9 @@ func cancel_current_interaction() -> void:
 
 
 func secondary_press_world(_world_position: Vector2, tile: Vector2i) -> void:
+	if _is_line_painting:
+		_clear_line_preview()
+		return
 	if paint_tool != PAINT_TOOL_NONE:
 		cancel_active_placement()
 		return
@@ -311,7 +319,7 @@ func primary_press_tile(tile: Vector2i, line_mode: bool) -> void:
 	primary_press_world(map_to_screen(tile), tile, line_mode)
 
 
-func primary_press_world(world_position: Vector2, tile: Vector2i, line_mode: bool) -> void:
+func primary_press_world(world_position: Vector2, tile: Vector2i, _line_mode: bool) -> void:
 	if not _is_inside_map(tile):
 		return
 
@@ -320,7 +328,7 @@ func primary_press_world(world_position: Vector2, tile: Vector2i, line_mode: boo
 	if overlay_layer != null:
 		overlay_layer.set_selected_tile(selected_tile)
 	if paint_tool != PAINT_TOOL_NONE:
-		if line_mode and paint_tool == PAINT_TOOL_ROAD:
+		if paint_tool == PAINT_TOOL_ROAD:
 			_begin_line_preview(tile)
 		else:
 			paint_tile(tile)
@@ -470,7 +478,7 @@ func _update_line_preview(tile: Vector2i) -> void:
 	if not _is_line_painting or not _is_inside_map(tile):
 		return
 
-	_line_preview_tiles = _line_tiles(_line_start_tile, tile)
+	_line_preview_tiles = _road_path_tiles(_line_start_tile, tile)
 	if overlay_layer != null:
 		overlay_layer.set_line_preview(_line_preview_tiles, true)
 	_update_placement_feedback()
@@ -478,6 +486,11 @@ func _update_line_preview(tile: Vector2i) -> void:
 
 func _commit_line_preview() -> void:
 	var changed_tiles: Array[Vector2i] = _line_preview_tiles.duplicate()
+	for tile in _line_preview_tiles:
+		if not map_data.has_road(tile) and not _can_place_road_tile(tile):
+			_clear_line_preview()
+			_request_overlay_redraw("reject_line_preview")
+			return
 	for tile in _line_preview_tiles:
 		_apply_paint_tool(tile, false)
 	_clear_line_preview()
@@ -683,6 +696,13 @@ func _apply_paint_tool(tile: Vector2i, redraw_static_layer: bool) -> void:
 		if redraw_static_layer:
 			_refresh_road_tile(tile)
 			_refresh_unit_paths("road_edit")
+	elif paint_tool == PAINT_TOOL_ROAD_DELETE:
+		if not map_data.has_road(tile):
+			return
+		map_data.set_road(tile, false)
+		if redraw_static_layer:
+			_refresh_road_tile(tile)
+			_refresh_unit_paths("road_delete")
 	elif paint_tool.begins_with(PAINT_TOOL_BUILDING_PREFIX):
 		var building_type: String = paint_tool.trim_prefix(PAINT_TOOL_BUILDING_PREFIX)
 		if colony_state != null and colony_state.place_building(building_type, tile, map_data, building_orientation):
@@ -745,6 +765,8 @@ func _placement_tiles_for_active_tool() -> Array[Vector2i]:
 			var line_tiles: Array[Vector2i] = _line_preview_tiles.duplicate()
 			return line_tiles
 		return _single_tile_array(hovered_tile)
+	if paint_tool == PAINT_TOOL_ROAD_DELETE:
+		return _single_tile_array(hovered_tile)
 	if paint_tool.begins_with(PAINT_TOOL_BUILDING_PREFIX):
 		var building_type: String = paint_tool.trim_prefix(PAINT_TOOL_BUILDING_PREFIX)
 		return _building_footprint_tiles(building_type, hovered_tile)
@@ -771,6 +793,8 @@ func _building_footprint_tiles(building_type: String, origin: Vector2i) -> Array
 func _can_place_tool_tile(tile: Vector2i) -> bool:
 	if paint_tool == PAINT_TOOL_ROAD:
 		return _can_place_road_tile(tile)
+	if paint_tool == PAINT_TOOL_ROAD_DELETE:
+		return _is_inside_map(tile) and map_data.has_road(tile)
 	if paint_tool.begins_with(PAINT_TOOL_BUILDING_PREFIX):
 		return _can_place_building_footprint_tile(tile)
 	if paint_tool.begins_with(PAINT_TOOL_TERRAIN_PREFIX) and dev_mode:
@@ -806,7 +830,7 @@ func _connect_building_vehicle_entry(building: Dictionary) -> void:
 
 
 func _is_continuous_paint_tool() -> bool:
-	return paint_tool == PAINT_TOOL_ROAD or (paint_tool.begins_with(PAINT_TOOL_TERRAIN_PREFIX) and dev_mode)
+	return paint_tool == PAINT_TOOL_ROAD_DELETE or (paint_tool.begins_with(PAINT_TOOL_TERRAIN_PREFIX) and dev_mode)
 
 
 func change_digger_operators(delta: int) -> void:
@@ -824,7 +848,7 @@ func change_infantry(delta: int) -> void:
 
 
 func _refresh_static_layer_for_tiles(changed_tiles: Array[Vector2i]) -> void:
-	if paint_tool == PAINT_TOOL_ROAD:
+	if paint_tool == PAINT_TOOL_ROAD or paint_tool == PAINT_TOOL_ROAD_DELETE:
 		_refresh_road_tiles(changed_tiles)
 		_refresh_unit_paths("road_batch_edit")
 	elif paint_tool.begins_with(PAINT_TOOL_TERRAIN_PREFIX):
@@ -994,6 +1018,68 @@ func _line_tiles(start: Vector2i, end: Vector2i) -> Array[Vector2i]:
 		_append_unique_tile(tiles, current)
 
 	return tiles
+
+
+func _road_path_tiles(start: Vector2i, end: Vector2i) -> Array[Vector2i]:
+	var direct_path := _line_tiles(start, end)
+	last_road_preview_used_pathfinding = false
+	if _road_path_is_clear(direct_path):
+		return direct_path
+	if not _road_path_tile_traversable(start) or not _road_path_tile_traversable(end):
+		return direct_path
+
+	road_preview_pathfind_requests += 1
+	var region_start := Vector2i(
+		maxi(0, mini(start.x, end.x) - ROAD_PATH_SEARCH_MARGIN),
+		maxi(0, mini(start.y, end.y) - ROAD_PATH_SEARCH_MARGIN)
+	)
+	var region_end := Vector2i(
+		mini(map_data.size.x - 1, maxi(start.x, end.x) + ROAD_PATH_SEARCH_MARGIN),
+		mini(map_data.size.y - 1, maxi(start.y, end.y) + ROAD_PATH_SEARCH_MARGIN)
+	)
+	var astar := AStarGrid2D.new()
+	astar.region = Rect2i(region_start, region_end - region_start + Vector2i.ONE)
+	astar.cell_size = Vector2.ONE
+	astar.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
+	astar.default_compute_heuristic = AStarGrid2D.HEURISTIC_OCTILE
+	astar.default_estimate_heuristic = AStarGrid2D.HEURISTIC_OCTILE
+	astar.update()
+	for y in range(region_start.y, region_end.y + 1):
+		for x in range(region_start.x, region_end.x + 1):
+			var tile := Vector2i(x, y)
+			if not _road_path_tile_traversable(tile):
+				astar.set_point_solid(tile, true)
+			elif map_data.has_road(tile):
+				astar.set_point_weight_scale(tile, EXISTING_ROAD_PATH_WEIGHT)
+
+	var id_path := astar.get_id_path(start, end)
+	if id_path.is_empty():
+		return direct_path
+	var path: Array[Vector2i] = []
+	for tile: Vector2i in id_path:
+		path.append(tile)
+	last_road_preview_used_pathfinding = true
+	return path
+
+
+func _road_path_is_clear(path: Array[Vector2i]) -> bool:
+	for index in path.size():
+		var tile: Vector2i = path[index]
+		if not _road_path_tile_traversable(tile):
+			return false
+		if index == 0:
+			continue
+		var direction := tile - path[index - 1]
+		if direction.x != 0 and direction.y != 0:
+			if not _road_path_tile_traversable(path[index - 1] + Vector2i(direction.x, 0)):
+				return false
+			if not _road_path_tile_traversable(path[index - 1] + Vector2i(0, direction.y)):
+				return false
+	return true
+
+
+func _road_path_tile_traversable(tile: Vector2i) -> bool:
+	return _is_inside_map(tile) and (map_data.has_road(tile) or _can_place_road_tile(tile))
 
 
 func _append_unique_tile(tiles: Array[Vector2i], tile: Vector2i) -> void:

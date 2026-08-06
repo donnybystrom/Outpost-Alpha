@@ -619,6 +619,10 @@ func _initialize() -> void:
 
 	var road_tile: Vector2i = world.map_data.start_tile + Vector2i(2, 2)
 	root._select_build_tool("road")
+	if not root.road_submenu_panel.visible or not root.road_build_mode_button.button_pressed:
+		push_error("Selecting Road should open its sub-construction menu in build mode.")
+		quit(1)
+		return
 	var road_viewport_position: Vector2 = _tile_to_viewport(root, road_tile)
 	if input_controller.viewport_to_tile(road_viewport_position) != road_tile:
 		push_error("Viewport-to-tile conversion did not round-trip through the 3D camera transform.")
@@ -694,8 +698,13 @@ func _initialize() -> void:
 		quit(1)
 		return
 	input_controller.primary_press_at_viewport(road_viewport_position, false)
+	if world.map_data.has_road(road_tile):
+		push_error("Road drag should remain a preview until the left mouse button is released.")
+		quit(1)
+		return
+	input_controller.primary_release_at_viewport(road_viewport_position)
 	if not world.map_data.has_road(road_tile):
-		push_error("Road construction tool did not paint a road.")
+		push_error("Releasing a road drag should commit its previewed tiles.")
 		quit(1)
 		return
 	if not road_3d_layer.tile_mask_by_tile.has(road_tile):
@@ -708,6 +717,24 @@ func _initialize() -> void:
 		return
 	if road_layer.last_cells_processed > 25:
 		push_error("Single road edit should repaint only a small local overlap area.")
+		quit(1)
+		return
+	root._select_build_tool("road_delete")
+	if not root.road_submenu_panel.visible or not root.road_delete_mode_button.button_pressed or not root.road_tool_button.button_pressed:
+		push_error("Road delete mode should remain inside the visible Road sub-construction menu.")
+		quit(1)
+		return
+	input_controller.primary_press_at_viewport(road_viewport_position, false)
+	input_controller.primary_release_at_viewport(road_viewport_position)
+	if world.map_data.has_road(road_tile):
+		push_error("Delete road mode should remove an individual road tile.")
+		quit(1)
+		return
+	root._select_build_tool("road")
+	input_controller.primary_press_at_viewport(road_viewport_position, false)
+	input_controller.primary_release_at_viewport(road_viewport_position)
+	if not world.map_data.has_road(road_tile):
+		push_error("Build road mode should remain selectable after deleting a road tile.")
 		quit(1)
 		return
 	var distant_overlap_tile: Vector2i = road_tile + Vector2i(0, -2)
@@ -727,6 +754,14 @@ func _initialize() -> void:
 	road_feedback = world._get_placement_feedback()
 	if road_feedback.size() != 1 or bool(road_feedback[0]["valid"]):
 		push_error("Road placement feedback should mark blocked terrain as invalid.")
+		quit(1)
+		return
+	var roads_before_invalid_release := _count_roads(world.map_data)
+	var blocked_road_viewport_position := _tile_to_viewport(root, blocked_road_tile)
+	input_controller.primary_press_at_viewport(blocked_road_viewport_position, false)
+	input_controller.primary_release_at_viewport(blocked_road_viewport_position)
+	if _count_roads(world.map_data) != roads_before_invalid_release:
+		push_error("Releasing an invalid road preview should reject the whole placement atomically.")
 		quit(1)
 		return
 	world.paint_tile(blocked_road_tile)
@@ -1085,6 +1120,18 @@ func _initialize() -> void:
 		quit(1)
 		return
 	root._select_build_tool("road")
+	var roads_before_cancelled_drag: int = _count_roads(world.map_data)
+	input_controller.primary_press_at_viewport(road_viewport_position, false)
+	input_controller.primary_drag_at_viewport(_tile_to_viewport(root, road_tile + Vector2i(1, 0)))
+	input_controller.secondary_press_at_viewport(road_viewport_position)
+	if world._is_line_painting or _count_roads(world.map_data) != roads_before_cancelled_drag:
+		push_error("Right-click during a road drag should discard the preview without placing anything.")
+		quit(1)
+		return
+	if world.paint_tool != "road":
+		push_error("Cancelling a road drag should keep Road build mode selected.")
+		quit(1)
+		return
 	input_controller.secondary_press_at_viewport(road_viewport_position)
 	if world.paint_tool != "none":
 		push_error("Right-click should cancel active road placement.")
@@ -1150,10 +1197,30 @@ func _initialize() -> void:
 	var line_start: Vector2i = road_line[0]
 	var line_end: Vector2i = road_line[1]
 	_assert_eight_direction_path(world._line_tiles(world.map_data.start_tile + Vector2i(-4, -4), world.map_data.start_tile + Vector2i(-1, -1)))
+	var detour_start: Vector2i = world.map_data.start_tile + Vector2i(-8, 10)
+	var detour_end: Vector2i = world.map_data.start_tile + Vector2i(8, 10)
+	for y in range(6, 15):
+		for x in range(-9, 10):
+			var clear_tile: Vector2i = world.map_data.start_tile + Vector2i(x, y)
+			world.map_data.set_terrain(clear_tile, 0)
+			world.map_data.set_road(clear_tile, false)
+	for y in range(8, 13):
+		world.map_data.set_terrain(world.map_data.start_tile + Vector2i(0, y), 5)
+	var detour_path: Array[Vector2i] = world._road_path_tiles(detour_start, detour_end)
+	if not world.last_road_preview_used_pathfinding or detour_path.is_empty() or detour_path[0] != detour_start or detour_path[detour_path.size() - 1] != detour_end:
+		push_error("Blocked road previews should use A* and still connect both dragged endpoints.")
+		quit(1)
+		return
+	for detour_tile in detour_path:
+		if world.map_data.get_terrain(detour_tile) != 0:
+			push_error("Suggested road path should route around blocked terrain instead of crossing it.")
+			quit(1)
+			return
+	_assert_eight_direction_path(detour_path)
 	var line_start_viewport_position: Vector2 = _tile_to_viewport(root, line_start)
 	var line_end_viewport_position: Vector2 = _tile_to_viewport(root, line_end)
 	root._select_build_tool("road")
-	input_controller.primary_press_at_viewport(line_start_viewport_position, true)
+	input_controller.primary_press_at_viewport(line_start_viewport_position, false)
 	input_controller.primary_drag_at_viewport(line_end_viewport_position)
 	if world._line_preview_tiles.size() < 2:
 		push_error("Road line preview did not collect target tiles.")
