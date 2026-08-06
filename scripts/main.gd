@@ -1,5 +1,7 @@
 extends Node2D
 
+signal sandbox_loading_finished
+
 const IsoCamera := preload("res://scripts/iso_camera.gd")
 const IsoBuilding3DLayer := preload("res://scripts/iso_building_3d_layer.gd")
 const IsoBuildingPreview3DLayer := preload("res://scripts/iso_building_preview_3d_layer.gd")
@@ -57,6 +59,9 @@ var ui_root: Control
 var main_menu_root: Control
 var sandbox_root: Control
 var game_hud_root: Control
+var loading_root: Control
+var loading_status_label: Label
+var loading_progress_bar: ProgressBar
 var status_label: Label
 var objective_label: Label
 var colony_label: Label
@@ -85,10 +90,12 @@ var tool_buttons: Array[Button] = []
 var paths_spin_box: SpinBox
 var path_width_spin_box: SpinBox
 var clearing_noise_spin_box: SpinBox
+var mountain_percent_spin_box: SpinBox
 var min_build_spin_box: SpinBox
 var max_build_spin_box: SpinBox
 var tree_density_spin_box: SpinBox
 var tree_size_spin_box: SpinBox
+var grid_render_check_box: CheckBox
 var is_dev_mode: bool = false
 var admin_panel_visible: bool = false
 var music_enabled: bool = true
@@ -96,6 +103,10 @@ var music_volume_db: float = -10.0
 var _camera_initialized: bool = false
 var _layout_queued: bool = false
 var _performance_update_elapsed: float = 0.0
+var _last_overlay_projection_state := Vector4(INF, INF, INF, INF)
+var _last_overlay_viewport_size := Vector2(-1.0, -1.0)
+var _last_overlay_tilt := INF
+var _sandbox_loading := false
 var _music_tween: Tween
 
 
@@ -258,6 +269,7 @@ func _build_ui() -> void:
 	_build_main_menu()
 	_build_sandbox_setup()
 	_build_game_hud()
+	_build_loading_screen()
 
 
 func _build_ui_theme() -> Theme:
@@ -450,6 +462,7 @@ func _build_sandbox_setup() -> void:
 	paths_spin_box = _add_admin_spin_box(world_tab, "Paths", 1, 12, 3)
 	path_width_spin_box = _add_admin_spin_box(world_tab, "Path width", 1, 16, 8)
 	clearing_noise_spin_box = _add_admin_spin_box(world_tab, "Clear noise", 0, 100, 45)
+	mountain_percent_spin_box = _add_admin_spin_box(world_tab, "Mountain wilderness %", 0, 100, 67)
 	min_build_spin_box = _add_admin_spin_box(world_tab, "Build min", 4, 46, 25)
 	max_build_spin_box = _add_admin_spin_box(world_tab, "Build max", 4, 47, 40)
 
@@ -462,6 +475,11 @@ func _build_sandbox_setup() -> void:
 	tree_density_spin_box.value_changed.connect(_on_forest_visual_settings_changed)
 	tree_size_spin_box = _add_admin_spin_box(visuals_tab, "Tree size %", 25, 250, DEFAULT_TREE_SIZE_PERCENT)
 	tree_size_spin_box.value_changed.connect(_on_forest_visual_settings_changed)
+	grid_render_check_box = CheckBox.new()
+	grid_render_check_box.text = "Show tile grid"
+	grid_render_check_box.button_pressed = true
+	grid_render_check_box.toggled.connect(_on_grid_rendering_toggled)
+	visuals_tab.add_child(grid_render_check_box)
 
 	var raids_tab: VBoxContainer = VBoxContainer.new()
 	raids_tab.name = "Raids"
@@ -487,6 +505,62 @@ func _build_sandbox_setup() -> void:
 	start_button.text = "Regenerate World"
 	start_button.pressed.connect(_regenerate_current_world)
 	buttons.add_child(start_button)
+
+
+func _build_loading_screen() -> void:
+	loading_root = Control.new()
+	loading_root.name = "LoadingScreen"
+	loading_root.mouse_filter = Control.MOUSE_FILTER_STOP
+	loading_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	loading_root.visible = false
+	ui_root.add_child(loading_root)
+
+	var backdrop := ColorRect.new()
+	backdrop.color = Color8(7, 9, 8)
+	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
+	loading_root.add_child(backdrop)
+
+	var panel := PanelContainer.new()
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.position = Vector2(-240.0, -82.0)
+	panel.size = Vector2(480.0, 164.0)
+	loading_root.add_child(panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 24)
+	margin.add_theme_constant_override("margin_top", 22)
+	margin.add_theme_constant_override("margin_right", 24)
+	margin.add_theme_constant_override("margin_bottom", 22)
+	panel.add_child(margin)
+
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 14)
+	margin.add_child(content)
+
+	var title := Label.new()
+	title.text = "PREPARING OUTPOST"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content.add_child(title)
+
+	loading_status_label = Label.new()
+	loading_status_label.text = "Initializing..."
+	loading_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content.add_child(loading_status_label)
+
+	loading_progress_bar = ProgressBar.new()
+	loading_progress_bar.min_value = 0.0
+	loading_progress_bar.max_value = 100.0
+	loading_progress_bar.value = 0.0
+	loading_progress_bar.show_percentage = true
+	loading_progress_bar.custom_minimum_size = Vector2(420.0, 28.0)
+	content.add_child(loading_progress_bar)
+
+
+func _set_loading_progress(progress: float, status: String) -> void:
+	loading_root.visible = true
+	loading_progress_bar.value = clampf(progress, 0.0, 100.0)
+	loading_status_label.text = status
 
 
 func _placeholder_label(text: String) -> Label:
@@ -555,7 +629,7 @@ func _build_game_hud() -> void:
 	box.add_child(performance_label)
 
 	var help: Label = Label.new()
-	help.text = "Pan: WASD / arrows / middle mouse  |  Rotate: Alt + middle mouse  |  Zoom: mouse wheel  |  Grid: G  |  Admin: ` / §"
+	help.text = "Pan: WASD / arrows / middle mouse  |  Rotate/tilt: Alt + middle mouse  |  Zoom: mouse wheel  |  Grid: G  |  Admin: ` / §"
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(help)
 
@@ -779,16 +853,29 @@ func _show_sandbox_setup() -> void:
 
 
 func _start_sandbox(next_dev_mode: bool = false) -> void:
+	if _sandbox_loading:
+		return
+	_sandbox_loading = true
 	app_state = AppState.IN_GAME
 	_crossfade_music_to(GAME_MUSIC_PATH)
 	is_dev_mode = next_dev_mode
 	admin_panel_visible = false
 	main_menu_root.visible = false
 	sandbox_root.visible = false
-	game_hud_root.visible = true
-	_ensure_world()
-	world.configure_mode(is_dev_mode, is_dev_mode)
-	_apply_sandbox_settings_to_world()
+	game_hud_root.visible = false
+	_set_loading_progress(5.0, "Initializing colony systems...")
+	await get_tree().process_frame
+
+	var creating_world := world == null
+	if creating_world:
+		await _ensure_world()
+	else:
+		_set_loading_progress(25.0, "Regenerating wilderness...")
+		world.configure_mode(is_dev_mode, is_dev_mode)
+		_apply_sandbox_settings_to_world()
+		_set_loading_progress(88.0, "Synchronizing render layers...")
+		await get_tree().process_frame
+
 	_set_world_active(true)
 	_place_initial_camera(true)
 	_sync_game_mode_ui()
@@ -799,6 +886,12 @@ func _start_sandbox(next_dev_mode: bool = false) -> void:
 	_set_sharon_briefing_visible(not is_dev_mode)
 	_sync_debug_hud_visibility()
 	_queue_responsive_layout()
+	_set_loading_progress(100.0, "Outpost ready")
+	await get_tree().process_frame
+	loading_root.visible = false
+	game_hud_root.visible = true
+	_sandbox_loading = false
+	sandbox_loading_finished.emit()
 
 
 func _quit_to_os() -> void:
@@ -809,8 +902,16 @@ func _ensure_world() -> void:
 	if world != null:
 		return
 
+	_set_loading_progress(12.0, "Generating terrain map...")
+	await get_tree().process_frame
 	world = IsoWorld.new()
 	world.name = "IsoWorld"
+	world.path_count = int(paths_spin_box.value)
+	world.path_width = int(path_width_spin_box.value)
+	world.clearing_noise = int(clearing_noise_spin_box.value)
+	world.mountain_percent = int(mountain_percent_spin_box.value)
+	world.min_build_radius = int(min_build_spin_box.value)
+	world.max_build_radius = maxi(world.min_build_radius, int(max_build_spin_box.value))
 	world.configure_mode(is_dev_mode, is_dev_mode)
 	add_child(world)
 	world.tile_changed.connect(_on_world_tile_changed)
@@ -820,24 +921,34 @@ func _ensure_world() -> void:
 	world.road_tiles_changed.connect(_on_world_road_tiles_changed)
 	world.buildings_changed.connect(_on_world_buildings_changed)
 	world.terrain_changed.connect(_on_world_terrain_changed)
+	await get_tree().process_frame
 
 	_build_world_lighting()
 
+	_set_loading_progress(28.0, "Building planetary surface...")
 	terrain_3d_layer = IsoTerrain3DLayer.new()
 	terrain_3d_layer.name = "Terrain3DLayer"
 	add_child(terrain_3d_layer)
 	terrain_3d_layer.set_map_data(world.map_data)
+	_apply_grid_rendering_setting()
+	await get_tree().process_frame
 
+	_set_loading_progress(38.0, "Planting alien wilderness...")
 	forest_3d_layer = IsoForest3DLayer.new()
 	forest_3d_layer.name = "Forest3DLayer"
 	add_child(forest_3d_layer)
 	forest_3d_layer.set_map_data(world.map_data)
 	_apply_forest_visual_settings()
+	await get_tree().process_frame
 
+	_set_loading_progress(48.0, "Raising mountain massifs...")
+	await get_tree().process_frame
 	mountain_3d_layer = IsoMountain3DLayer.new()
 	mountain_3d_layer.name = "Mountain3DLayer"
 	add_child(mountain_3d_layer)
 	mountain_3d_layer.set_map_data(world.map_data)
+	_set_loading_progress(72.0, "Laying infrastructure...")
+	await get_tree().process_frame
 
 	road_3d_layer = IsoRoad3DLayer.new()
 	road_3d_layer.name = "Road3DLayer"
@@ -859,6 +970,8 @@ func _ensure_world() -> void:
 	unit_3d_layer.name = "Unit3DLayer"
 	add_child(unit_3d_layer)
 	unit_3d_layer.set_unit_state(world.unit_state)
+	_set_loading_progress(86.0, "Calibrating orbital camera...")
+	await get_tree().process_frame
 
 	camera_3d = IsoCamera3D.new()
 	add_child(camera_3d)
@@ -881,6 +994,9 @@ func _ensure_world() -> void:
 	input_controller.configure(world, camera, camera_3d)
 	add_child(input_controller)
 	world.unit_layer.set_map_position_projector(Callable(input_controller, "map_position_to_viewport"))
+	world.overlay_layer.set_map_position_projector(Callable(input_controller, "map_position_to_viewport"))
+	_set_loading_progress(94.0, "Finalizing colony controls...")
+	await get_tree().process_frame
 
 
 func _set_world_active(active: bool) -> void:
@@ -956,10 +1072,12 @@ func _apply_sandbox_settings_to_world() -> void:
 		max_build_radius,
 		int(path_width_spin_box.value),
 		int(clearing_noise_spin_box.value),
+		int(mountain_percent_spin_box.value),
 		is_dev_mode
 	)
 	if terrain_3d_layer != null:
 		terrain_3d_layer.set_map_data(world.map_data)
+		_apply_grid_rendering_setting()
 	if forest_3d_layer != null:
 		forest_3d_layer.set_map_data(world.map_data)
 		_apply_forest_visual_settings()
@@ -1036,6 +1154,16 @@ func _change_role_assignment(role: String, delta: int) -> void:
 
 func _on_forest_visual_settings_changed(_value: float) -> void:
 	_apply_forest_visual_settings()
+
+
+func _on_grid_rendering_toggled(_enabled: bool) -> void:
+	_apply_grid_rendering_setting()
+
+
+func _apply_grid_rendering_setting() -> void:
+	if terrain_3d_layer == null or grid_render_check_box == null:
+		return
+	terrain_3d_layer.set_grid_visible(grid_render_check_box.button_pressed)
 
 
 func _apply_forest_visual_settings() -> void:
@@ -1186,7 +1314,15 @@ func _place_initial_camera(force := false) -> void:
 func _sync_terrain_3d_camera() -> void:
 	if camera_3d == null or camera == null:
 		return
-	camera_3d.sync_from_iso_camera(camera, Vector2(get_viewport_rect().size))
+	var viewport_size := Vector2(get_viewport_rect().size)
+	camera_3d.sync_from_iso_camera(camera, viewport_size)
+	var projection_state := Vector4(camera.position.x, camera.position.y, camera.zoom.x, camera_3d.yaw_radians)
+	if projection_state != _last_overlay_projection_state or viewport_size != _last_overlay_viewport_size or not is_equal_approx(camera_3d.tilt_radians, _last_overlay_tilt):
+		_last_overlay_projection_state = projection_state
+		_last_overlay_viewport_size = viewport_size
+		_last_overlay_tilt = camera_3d.tilt_radians
+		if world != null and world.overlay_layer != null:
+			world.overlay_layer.request_redraw("camera_projection")
 
 
 func _sync_building_3d_preview() -> void:
@@ -1224,7 +1360,7 @@ func _sync_unit_3d_layer() -> void:
 		world.unit_layer.request_redraw("camera_projection")
 
 
-func _on_camera_view_rotation_dragged(relative_pixels: float) -> void:
+func _on_camera_view_rotation_dragged(relative_pixels: Vector2) -> void:
 	if camera_3d == null:
 		return
 	camera_3d.rotate_view(relative_pixels)

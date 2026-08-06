@@ -12,6 +12,7 @@ func _initialize() -> void:
 	get_root().add_child(root)
 	await process_frame
 	root._start_sandbox(false)
+	await root.sandbox_loading_finished
 	await process_frame
 
 	var camera := root.get_node("IsoCamera") as Camera2D
@@ -51,6 +52,22 @@ func _initialize() -> void:
 
 	if initial_hud_scale != Vector2.ONE or wide_hud_scale != Vector2.ONE or square_hud_scale != Vector2.ONE:
 		push_error("HUD root should not scale with viewport size; layout should remain responsive instead.")
+		quit(1)
+		return
+
+	camera.set_zoom_level(999.0)
+	root._sync_terrain_3d_camera()
+	if not is_equal_approx(camera.zoom.x, camera.MAX_ZOOM) or camera.MAX_ZOOM < 16.0:
+		push_error("Camera should allow a 16x close-up zoom level.")
+		quit(1)
+		return
+	var expected_closeup_size: float = clampf(
+		square_viewport_size.y / (root.camera_3d.ISO_PIXELS_PER_WORLD_UNIT * camera.MAX_ZOOM),
+		root.camera_3d.MIN_ORTHO_SIZE,
+		root.camera_3d.MAX_ORTHO_SIZE
+	)
+	if not is_equal_approx(root.camera_3d.size, expected_closeup_size) or root.camera_3d.size >= 4.0:
+		push_error("Camera3D orthographic size should follow the extended close-up zoom range.")
 		quit(1)
 		return
 

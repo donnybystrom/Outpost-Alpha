@@ -8,7 +8,7 @@ const BUILDING_MACHINE_PARK := BuildingCatalog.BUILDING_MACHINE_PARK
 const BUILDING_MILLING_PLANT := BuildingCatalog.BUILDING_MILLING_PLANT
 const BUILDING_HQ := BuildingCatalog.BUILDING_HQ
 const BUILDING_TYPES := BuildingCatalog.BUILDING_TYPES
-const STARTING_HQ_METAL := 225
+const STARTING_HQ_METAL := 950
 
 var building_catalog = BuildingCatalog.new()
 var buildings: Array[Dictionary] = []

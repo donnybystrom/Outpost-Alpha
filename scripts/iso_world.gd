@@ -60,6 +60,7 @@ var building_orientation := BuildingCatalog.ORIENTATION_HORIZONTAL
 var path_count := 3
 var path_width := 8
 var clearing_noise := 45
+var mountain_percent := ProceduralMapGenerator.DEFAULT_MOUNTAIN_PERCENT
 var min_build_radius := 25
 var max_build_radius := 40
 var _is_line_painting := false
@@ -106,12 +107,13 @@ func configure_mode(next_dev_mode: bool, next_show_demo_content: bool) -> void:
 	request_redraw("configure_mode")
 
 
-func regenerate(next_path_count: int, next_min_build_radius: int, next_max_build_radius: int, next_path_width: int, next_clearing_noise: int, include_demo_roads := false) -> void:
+func regenerate(next_path_count: int, next_min_build_radius: int, next_max_build_radius: int, next_path_width: int, next_clearing_noise: int, next_mountain_percent: int, include_demo_roads := false) -> void:
 	path_count = clampi(next_path_count, 1, 12)
 	min_build_radius = clampi(next_min_build_radius, 4, 46)
 	max_build_radius = clampi(next_max_build_radius, min_build_radius, 47)
 	path_width = clampi(next_path_width, 1, 16)
 	clearing_noise = clampi(next_clearing_noise, 0, 100)
+	mountain_percent = clampi(next_mountain_percent, 0, 100)
 	show_demo_content = include_demo_roads
 	_generate_world()
 	colony_state.reset()
@@ -165,6 +167,7 @@ func _generate_world() -> void:
 		path_count,
 		path_width,
 		clearing_noise,
+		mountain_percent,
 		show_demo_content
 	)
 	selected_tile = map_data.start_tile

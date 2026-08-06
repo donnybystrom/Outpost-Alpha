@@ -1,13 +1,13 @@
 extends Camera2D
 
-signal view_rotation_dragged(relative_pixels: float)
+signal view_rotation_dragged(relative_pixels: Vector2)
 signal pan_dragged(relative_pixels: Vector2, previous_position: Vector2, current_position: Vector2)
 
 const PAN_SPEED := 520.0
 const DRAG_SPEED := 1.0
 const ZOOM_STEP := 1.12
 const MIN_ZOOM := 0.65
-const MAX_ZOOM := 4.0
+const MAX_ZOOM := 16.0
 
 var _dragging := false
 var _rotating := false
@@ -53,7 +53,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _rotating or mouse_motion.alt_pressed:
 			_dragging = false
 			_rotating = true
-			view_rotation_dragged.emit(mouse_motion.relative.x)
+			view_rotation_dragged.emit(mouse_motion.relative)
 		elif external_pan_enabled:
 			pan_dragged.emit(mouse_motion.relative, _last_mouse_position, mouse_motion.position)
 		else:

@@ -1,15 +1,19 @@
 extends SceneTree
 
 const ProceduralMapGenerator := preload("res://scripts/procedural_map_generator.gd")
+const MapData := preload("res://scripts/map_data.gd")
 
 
 func _initialize() -> void:
+	_assert_mountain_mask_cleanup()
 	var map_data := ProceduralMapGenerator.generate(Vector2i(96, 96), 123456)
 	var custom_map_data := ProceduralMapGenerator.generate(Vector2i(96, 96), 123456, 12, 14, 5, 2, 80)
 	var circular_clearing := ProceduralMapGenerator.generate(Vector2i(96, 96), 24680, 18, 30, 3, 1, 0)
 	var noisy_clearing := ProceduralMapGenerator.generate(Vector2i(96, 96), 24680, 18, 30, 3, 1, 100)
 	var narrow_paths := ProceduralMapGenerator.generate(Vector2i(96, 96), 98765, 20, 20, 3, 1, 45)
 	var wide_paths := ProceduralMapGenerator.generate(Vector2i(96, 96), 98765, 20, 20, 3, 10, 45)
+	var no_mountains := ProceduralMapGenerator.generate(Vector2i(96, 96), 123456, 25, 40, 3, 8, 45, 0)
+	var all_mountains := ProceduralMapGenerator.generate(Vector2i(96, 96), 123456, 25, 40, 3, 8, 45, 100)
 
 	if map_data.seed != 123456:
 		push_error("Fixed seed was not preserved on generated map data.")
@@ -46,6 +50,21 @@ func _initialize() -> void:
 		quit(1)
 		return
 
+	if map_data.mountain_percent != ProceduralMapGenerator.DEFAULT_MOUNTAIN_PERCENT:
+		push_error("Default generation should use the increased mountain wilderness percentage.")
+		quit(1)
+		return
+
+	if _count_terrain(no_mountains, 5) != 0:
+		push_error("Mountain wilderness 0 should generate no mountain tiles.")
+		quit(1)
+		return
+
+	if _count_terrain(all_mountains, 1) != 0 or _count_terrain(all_mountains, 2) != 0:
+		push_error("Mountain wilderness 100 should replace every forest and crystal wilderness tile.")
+		quit(1)
+		return
+
 	if _count_clear_tiles(noisy_clearing) <= _count_clear_tiles(circular_clearing):
 		push_error("Noisy clearing did not carve more outer build area than circular clearing.")
 		quit(1)
@@ -70,6 +89,38 @@ func _initialize() -> void:
 	_assert_outer_forest_exists(map_data)
 	_assert_outer_mountains_exist(map_data)
 	quit(0)
+
+
+func _assert_mountain_mask_cleanup() -> void:
+	var notched_map := MapData.new(Vector2i(7, 7))
+	notched_map.start_tile = Vector2i(1, 1)
+	for y in notched_map.size.y:
+		for x in notched_map.size.x:
+			notched_map.set_terrain(Vector2i(x, y), 5)
+	for tile in [Vector2i(3, 0), Vector2i(3, 1), Vector2i(3, 2)]:
+		notched_map.set_terrain(tile, 0)
+	ProceduralMapGenerator._close_mountain_mask(notched_map)
+	for tile in [Vector2i(3, 1), Vector2i(3, 2)]:
+		if notched_map.get_terrain(tile) != 5:
+			push_error("Mountain mask closing should remove narrow notches in a massif.")
+			quit(1)
+			return
+
+	var pocket_map := MapData.new(Vector2i(10, 10))
+	pocket_map.start_tile = Vector2i(1, 1)
+	for y in pocket_map.size.y:
+		for x in pocket_map.size.x:
+			pocket_map.set_terrain(Vector2i(x, y), 5)
+	for y in range(3, 7):
+		for x in range(3, 7):
+			pocket_map.set_terrain(Vector2i(x, y), 1)
+	ProceduralMapGenerator._fill_small_mountain_holes(pocket_map)
+	for y in range(3, 7):
+		for x in range(3, 7):
+			if pocket_map.get_terrain(Vector2i(x, y)) != 5:
+				push_error("Mountain mask cleanup should fill small enclosed wilderness pockets.")
+				quit(1)
+				return
 
 
 func _assert_inner_build_area_is_clear(map_data: RefCounted) -> void:
@@ -117,8 +168,8 @@ func _assert_outer_mountains_exist(map_data: RefCounted) -> void:
 	if mountain_count < 250:
 		push_error("Generated map does not contain enough outer mountain massif: %s tiles." % mountain_count)
 		quit(1)
-	if mountain_count < int(float(forest_count) * 0.25) or mountain_count > int(float(forest_count) * 0.85):
-		push_error("Mountain massifs should be roughly half as common as forest. Forest=%s mountain=%s." % [forest_count, mountain_count])
+	if mountain_count < int(float(forest_count) * 1.4) or mountain_count > int(float(forest_count) * 3.0):
+		push_error("Default mountain massifs should be roughly four times more common relative to forest than before. Forest=%s mountain=%s." % [forest_count, mountain_count])
 		quit(1)
 
 
@@ -129,3 +180,12 @@ func _count_clear_tiles(map_data: RefCounted) -> int:
 			if map_data.get_terrain(Vector2i(x, y)) == 0:
 				clear_count += 1
 	return clear_count
+
+
+func _count_terrain(map_data: RefCounted, terrain_id: int) -> int:
+	var count := 0
+	for y in map_data.size.y:
+		for x in map_data.size.x:
+			if map_data.get_terrain(Vector2i(x, y)) == terrain_id:
+				count += 1
+	return count

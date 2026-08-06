@@ -26,6 +26,7 @@ var selected_building_tiles: Array[Vector2i] = []
 var selection_rect := Rect2()
 var selection_rect_visible := false
 var selection_rect_viewport_space := false
+var map_position_projector := Callable()
 
 var redraw_requests: int = 0
 var draw_calls: int = 0
@@ -55,6 +56,11 @@ func set_map_data(next_map_data: RefCounted) -> void:
 func set_road_atlas(next_road_atlas: Texture2D) -> void:
 	road_atlas = next_road_atlas
 	request_redraw("set_road_atlas")
+
+
+func set_map_position_projector(next_projector: Callable) -> void:
+	map_position_projector = next_projector
+	request_redraw("map_position_projector")
 
 
 func set_hovered_tile(tile: Vector2i) -> void:
@@ -301,6 +307,14 @@ func _road_preview_mask(tile: Vector2i, preview_tiles: Array[Vector2i]) -> int:
 
 
 func _tile_polygon(tile: Vector2i) -> PackedVector2Array:
+	if map_position_projector.is_valid():
+		var center := Vector2(tile)
+		return PackedVector2Array([
+			_map_position_to_draw(center + Vector2(-0.5, -0.5)),
+			_map_position_to_draw(center + Vector2(0.5, -0.5)),
+			_map_position_to_draw(center + Vector2(0.5, 0.5)),
+			_map_position_to_draw(center + Vector2(-0.5, 0.5)),
+		])
 	var origin: Vector2 = map_to_screen(tile)
 	return PackedVector2Array([
 		origin + Vector2(0, -HALF_TILE.y),
@@ -311,10 +325,17 @@ func _tile_polygon(tile: Vector2i) -> PackedVector2Array:
 
 
 func map_to_screen(tile: Vector2i) -> Vector2:
+	if map_position_projector.is_valid():
+		return _map_position_to_draw(Vector2(tile))
 	return Vector2(
 		float(tile.x - tile.y) * HALF_TILE.x,
 		float(tile.x + tile.y) * HALF_TILE.y
 	)
+
+
+func _map_position_to_draw(map_position: Vector2) -> Vector2:
+	var viewport_position: Vector2 = map_position_projector.call(map_position)
+	return get_global_transform_with_canvas().affine_inverse() * viewport_position
 
 
 func _is_inside_map(tile: Vector2i) -> bool:

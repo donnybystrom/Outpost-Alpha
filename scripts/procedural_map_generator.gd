@@ -8,9 +8,13 @@ const TERRAIN_CRYSTAL := 2
 const TERRAIN_ORE := 3
 const TERRAIN_VENT := 4
 const TERRAIN_MOUNTAIN := 5
+const DEFAULT_MOUNTAIN_PERCENT := 67
+const MOUNTAIN_CLOSING_PASSES := 1
+const MOUNTAIN_CLOSING_NEIGHBORS := 5
+const MAX_MOUNTAIN_HOLE_TILES := 24
 
 
-static func generate(map_size: Vector2i, seed: int = 0, min_build_radius: int = 25, max_build_radius: int = 40, path_count: int = 3, path_width: int = 8, clearing_noise: int = 45, include_demo_roads: bool = false) -> RefCounted:
+static func generate(map_size: Vector2i, seed: int = 0, min_build_radius: int = 25, max_build_radius: int = 40, path_count: int = 3, path_width: int = 8, clearing_noise: int = 45, mountain_percent: int = DEFAULT_MOUNTAIN_PERCENT, include_demo_roads: bool = false) -> RefCounted:
 	var rng := RandomNumberGenerator.new()
 	if seed == 0:
 		rng.randomize()
@@ -24,6 +28,7 @@ static func generate(map_size: Vector2i, seed: int = 0, min_build_radius: int = 
 	path_count = clampi(path_count, 1, 12)
 	path_width = clampi(path_width, 1, 16)
 	clearing_noise = clampi(clearing_noise, 0, 100)
+	mountain_percent = clampi(mountain_percent, 0, 100)
 
 	var map_data := MapData.new(map_size)
 	map_data.seed = seed
@@ -31,9 +36,10 @@ static func generate(map_size: Vector2i, seed: int = 0, min_build_radius: int = 
 	map_data.build_radius = min_build_radius
 	map_data.clearing_noise = clearing_noise
 	map_data.path_width = path_width
+	map_data.mountain_percent = mountain_percent
 
 	_generate_ground(map_data, seed)
-	_place_mountain_massifs(map_data, seed + 541)
+	_place_mountain_massifs(map_data, seed + 541, mountain_percent)
 	_carve_player_clearing(map_data, seed, min_build_radius, max_build_radius, clearing_noise)
 	_place_resources(map_data, seed + 991)
 	_carve_exit_paths(map_data, rng, path_count, path_width)
@@ -73,7 +79,10 @@ static func _generate_ground(map_data: RefCounted, seed: int) -> void:
 			map_data.set_terrain(Vector2i(x, y), terrain_id)
 
 
-static func _place_mountain_massifs(map_data: RefCounted, seed: int) -> void:
+static func _place_mountain_massifs(map_data: RefCounted, seed: int, mountain_percent: int) -> void:
+	if mountain_percent <= 0:
+		return
+
 	var mountain_noise := FastNoiseLite.new()
 	mountain_noise.seed = seed
 	mountain_noise.frequency = 0.052
@@ -84,16 +93,87 @@ static func _place_mountain_massifs(map_data: RefCounted, seed: int) -> void:
 	ridge_noise.frequency = 0.12
 	ridge_noise.fractal_octaves = 2
 
+	var candidates: Array[Dictionary] = []
 	var max_distance: float = Vector2(map_data.size).length() * 0.5
 	for y in map_data.size.y:
 		for x in map_data.size.x:
 			var tile := Vector2i(x, y)
+			var terrain_id: int = map_data.get_terrain(tile)
+			if terrain_id != TERRAIN_FOREST and terrain_id != TERRAIN_CRYSTAL:
+				continue
 			var distance: float = Vector2(tile - map_data.start_tile).length()
 			var wilderness_bias: float = smoothstep(float(map_data.build_radius) * 0.9, max_distance * 0.72, distance)
 			var mountain_value: float = mountain_noise.get_noise_2d(float(x), float(y)) + wilderness_bias * 0.36
 			var ridge_value: float = ridge_noise.get_noise_2d(float(x), float(y))
-			if mountain_value > 0.43 and ridge_value > -0.25:
-				map_data.set_terrain(tile, TERRAIN_MOUNTAIN)
+			candidates.append({
+				"tile": tile,
+				"score": mountain_value + ridge_value * 0.28,
+			})
+
+	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["score"]) > float(b["score"]))
+	var mountain_count := roundi(float(candidates.size()) * float(mountain_percent) / 100.0)
+	for index in range(mountain_count):
+		map_data.set_terrain(candidates[index]["tile"], TERRAIN_MOUNTAIN)
+
+	_close_mountain_mask(map_data)
+	_fill_small_mountain_holes(map_data)
+
+
+static func _close_mountain_mask(map_data: RefCounted) -> void:
+	var neighbor_offsets := [
+		Vector2i(-1, -1), Vector2i(0, -1), Vector2i(1, -1),
+		Vector2i(-1, 0), Vector2i(1, 0),
+		Vector2i(-1, 1), Vector2i(0, 1), Vector2i(1, 1),
+	]
+	for pass_index in range(MOUNTAIN_CLOSING_PASSES):
+		var tiles_to_fill: Array[Vector2i] = []
+		for y in map_data.size.y:
+			for x in map_data.size.x:
+				var tile := Vector2i(x, y)
+				if map_data.get_terrain(tile) == TERRAIN_MOUNTAIN:
+					continue
+				var mountain_neighbors := 0
+				for offset: Vector2i in neighbor_offsets:
+					var neighbor := tile + offset
+					if map_data.is_inside(neighbor) and map_data.get_terrain(neighbor) == TERRAIN_MOUNTAIN:
+						mountain_neighbors += 1
+				if mountain_neighbors >= MOUNTAIN_CLOSING_NEIGHBORS:
+					tiles_to_fill.append(tile)
+		for tile in tiles_to_fill:
+			map_data.set_terrain(tile, TERRAIN_MOUNTAIN)
+
+
+static func _fill_small_mountain_holes(map_data: RefCounted) -> void:
+	var visited := {}
+	var cardinal_offsets := [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
+	for y in map_data.size.y:
+		for x in map_data.size.x:
+			var start := Vector2i(x, y)
+			if visited.has(start) or map_data.get_terrain(start) == TERRAIN_MOUNTAIN:
+				continue
+			var component: Array[Vector2i] = []
+			var pending: Array[Vector2i] = [start]
+			visited[start] = true
+			var touches_map_edge := false
+			var contains_colony_start := false
+			while not pending.is_empty():
+				var tile: Vector2i = pending.pop_back()
+				component.append(tile)
+				if tile.x == 0 or tile.y == 0 or tile.x == map_data.size.x - 1 or tile.y == map_data.size.y - 1:
+					touches_map_edge = true
+				if tile == map_data.start_tile:
+					contains_colony_start = true
+				for offset: Vector2i in cardinal_offsets:
+					var neighbor := tile + offset
+					if not map_data.is_inside(neighbor) or visited.has(neighbor):
+						continue
+					if map_data.get_terrain(neighbor) == TERRAIN_MOUNTAIN:
+						continue
+					visited[neighbor] = true
+					pending.append(neighbor)
+			if not touches_map_edge and not contains_colony_start and component.size() <= MAX_MOUNTAIN_HOLE_TILES:
+				for tile in component:
+					map_data.set_terrain(tile, TERRAIN_MOUNTAIN)
 
 
 static func _carve_player_clearing(map_data: RefCounted, seed: int, min_build_radius: int, max_build_radius: int, clearing_noise: int) -> void:

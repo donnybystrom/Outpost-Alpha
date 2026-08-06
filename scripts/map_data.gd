@@ -6,6 +6,7 @@ var start_tile := Vector2i.ZERO
 var build_radius := 0
 var clearing_noise := 45
 var path_width := 8
+var mountain_percent := 67
 var path_endpoints: Array[Vector2i] = []
 var terrain: Array[Array] = []
 var roads: Array[Array] = []

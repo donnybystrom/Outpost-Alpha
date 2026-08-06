@@ -60,10 +60,19 @@ func _initialize() -> void:
 	root.paths_spin_box.value = 5
 	root.path_width_spin_box.value = 2
 	root.clearing_noise_spin_box.value = 80
+	root.mountain_percent_spin_box.value = 73
 	root.min_build_spin_box.value = 12
 	root.max_build_spin_box.value = 14
 	root._start_sandbox(false)
-	await process_frame
+	if root.loading_root == null or not root.loading_root.visible or root.loading_progress_bar.value <= 0.0:
+		push_error("Starting Sandbox should immediately show a loading screen with progress.")
+		quit(1)
+		return
+	await root.sandbox_loading_finished
+	if root.loading_root.visible:
+		push_error("Sandbox loading screen should hide after the world is ready.")
+		quit(1)
+		return
 	await process_frame
 
 	var world := root.get_node_or_null("IsoWorld")
@@ -153,13 +162,22 @@ func _initialize() -> void:
 		return
 	var camera_3d_size_before_rotation: float = root.camera_3d.size
 	var camera_3d_yaw_before_rotation: float = root.camera_3d.yaw_radians
-	root._on_camera_view_rotation_dragged(80.0)
+	var camera_3d_tilt_before_rotation: float = root.camera_3d.tilt_radians
+	root._on_camera_view_rotation_dragged(Vector2(80.0, 45.0))
 	if is_equal_approx(root.camera_3d.yaw_radians, camera_3d_yaw_before_rotation):
 		push_error("Alt-middle mouse drag should rotate the 3D world view yaw.")
 		quit(1)
 		return
 	if not is_equal_approx(root.camera_3d.size, camera_3d_size_before_rotation):
 		push_error("3D world view rotation should keep the same orthographic projection size.")
+		quit(1)
+		return
+	if is_equal_approx(root.camera_3d.tilt_radians, camera_3d_tilt_before_rotation):
+		push_error("Vertical rotation drag should tilt the 3D camera.")
+		quit(1)
+		return
+	if root.camera_3d.tilt_radians < root.camera_3d.MIN_TILT_RADIANS or root.camera_3d.tilt_radians > root.camera_3d.MAX_TILT_RADIANS:
+		push_error("3D camera tilt should remain within safe viewing limits.")
 		quit(1)
 		return
 	var sun_light := root.get_node_or_null("SunLight") as DirectionalLight3D
@@ -364,6 +382,10 @@ func _initialize() -> void:
 		push_error("Sandbox start did not apply clearing noise.")
 		quit(1)
 		return
+	if world.map_data.mountain_percent != 73:
+		push_error("Sandbox start did not apply the mountain wilderness percentage.")
+		quit(1)
+		return
 	var mountain_count := _count_terrain(world.map_data, 5)
 	if mountain_3d_layer.last_cells_processed != mountain_count:
 		push_error("Mountain3DLayer should process exactly the current mountain terrain tiles.")
@@ -373,12 +395,45 @@ func _initialize() -> void:
 		push_error("Mountain3DLayer should create a mesh instance when mountain terrain exists.")
 		quit(1)
 		return
+	if root.grid_render_check_box == null or not root.grid_render_check_box.button_pressed or not terrain_3d_layer.grid_visible:
+		push_error("Sandbox Admin tile grid rendering should default to enabled.")
+		quit(1)
+		return
+	root.grid_render_check_box.button_pressed = false
+	root._apply_grid_rendering_setting()
+	if terrain_3d_layer.grid_visible:
+		push_error("Sandbox Admin should be able to disable the 3D tile grid rendering.")
+		quit(1)
+		return
+	root.grid_render_check_box.button_pressed = true
+	root._apply_grid_rendering_setting()
 	if mountain_count > 0:
 		var mountain_instance := mountain_3d_layer.get_child(0) as MeshInstance3D
 		var mountain_arrays: Array = mountain_instance.mesh.surface_get_arrays(0)
 		var mountain_normals: PackedVector3Array = mountain_arrays[Mesh.ARRAY_NORMAL]
+		var mountain_vertices: PackedVector3Array = mountain_arrays[Mesh.ARRAY_VERTEX]
 		if mountain_normals.is_empty():
 			push_error("Mountain3DLayer should generate normals so sunlight can shade procedural massifs.")
+			quit(1)
+			return
+		if not _mountain_shared_vertices_are_watertight(mountain_vertices, mountain_3d_layer.SUBDIVISIONS):
+			push_error("Adjacent mountain tiles should assign identical heights to shared X/Z vertices.")
+			quit(1)
+			return
+		if not _mountain_slopes_are_bounded(mountain_vertices, mountain_3d_layer.SUBDIVISIONS, mountain_3d_layer.MAX_HEIGHT_STEP):
+			push_error("Mountain heightfield should limit adjacent samples so no triangle becomes excessively steep.")
+			quit(1)
+			return
+		if mountain_3d_layer.last_interior_boosted_points <= 0:
+			push_error("Deep mountain massif vertices should receive the safe interior height boost.")
+			quit(1)
+			return
+		if mountain_3d_layer.last_max_generated_height <= mountain_3d_layer.BASE_MAX_HEIGHT:
+			push_error("Interior mountain peaks should rise above the previous uniform maximum height.")
+			quit(1)
+			return
+		if mountain_3d_layer.last_max_generated_height > mountain_3d_layer.MAX_HEIGHT + 0.0001:
+			push_error("Interior mountain boost should never exceed the configured safe maximum height.")
 			quit(1)
 			return
 	var forest_count := _count_terrain(world.map_data, 1)
@@ -472,7 +527,7 @@ func _initialize() -> void:
 		push_error("Game HUD should include a top-center HQ metal resource bar.")
 		quit(1)
 		return
-	if root.hq_metal_value_label.text != "225":
+	if root.hq_metal_value_label.text != "950":
 		push_error("HQ metal HUD should start with the initial HQ metal reserve.")
 		quit(1)
 		return
@@ -578,12 +633,31 @@ func _initialize() -> void:
 		push_error("Viewport-to-tile conversion failed after camera pan/zoom.")
 		quit(1)
 		return
-	root._on_camera_view_rotation_dragged(90.0)
+	root._on_camera_view_rotation_dragged(Vector2(90.0, -30.0))
 	road_viewport_position = _tile_to_viewport(root, road_tile)
 	if input_controller.viewport_to_tile(road_viewport_position) != road_tile:
 		push_error("Viewport-to-tile conversion failed after 3D camera rotation.")
 		quit(1)
 		return
+	var expected_overlay_center: Vector2 = overlay_layer.get_global_transform_with_canvas().affine_inverse() * road_viewport_position
+	if overlay_layer.map_to_screen(road_tile).distance_to(expected_overlay_center) > 0.01:
+		push_error("Tile selector and placement overlays should use the rotated Camera3D projection.")
+		quit(1)
+		return
+	var projected_tile_polygon: PackedVector2Array = overlay_layer._tile_polygon(road_tile)
+	var tile_corner_offsets: Array[Vector2] = [
+		Vector2(-0.5, -0.5),
+		Vector2(0.5, -0.5),
+		Vector2(0.5, 0.5),
+		Vector2(-0.5, 0.5),
+	]
+	for corner_index in projected_tile_polygon.size():
+		var expected_corner_viewport: Vector2 = input_controller.map_position_to_viewport(Vector2(road_tile) + tile_corner_offsets[corner_index])
+		var expected_corner_local: Vector2 = overlay_layer.get_global_transform_with_canvas().affine_inverse() * expected_corner_viewport
+		if projected_tile_polygon[corner_index].distance_to(expected_corner_local) > 0.01:
+			push_error("Placement feedback polygon corners should follow Camera3D rotation.")
+			quit(1)
+			return
 
 	var terrain_redraws_before_hover: int = terrain_layer.redraw_requests
 	var road_redraws_before_hover: int = road_layer.redraw_requests
@@ -884,8 +958,16 @@ func _initialize() -> void:
 		push_error("Building a Hauler should spend 35 HQ metal.")
 		quit(1)
 		return
+	# The configured starting reserve may exceed the MVP chain cost. Drain the
+	# remainder explicitly before exercising the unaffordable-state UI below.
+	var reserve_after_vehicle_chain: int = world.colony_state.get_hq_stored_metal()
+	if reserve_after_vehicle_chain > 0:
+		world.colony_state.spend_hq_metal(reserve_after_vehicle_chain)
+		root._sync_resource_bar()
+		root._sync_construction_button_state()
+		root._sync_selected_building_panel()
 	if world.colony_state.get_hq_stored_metal() != 0:
-		push_error("Initial HQ metal should be fully spent after the first MVP production chain.")
+		push_error("Smoke setup should drain the remaining HQ reserve before affordability checks.")
 		quit(1)
 		return
 	if not root.oxygen_extractor_button.disabled:
@@ -1095,7 +1177,7 @@ func _initialize() -> void:
 	root._show_main_menu()
 	await process_frame
 	root._start_sandbox(true)
-	await process_frame
+	await root.sandbox_loading_finished
 	await process_frame
 	world = root.get_node_or_null("IsoWorld")
 	if world == null:
@@ -1282,6 +1364,31 @@ func _set_unit_by_id(unit_state: RefCounted, unit_id: int, next_unit: Dictionary
 
 func _tile_to_viewport(root: Node, tile: Vector2i) -> Vector2:
 	return root.camera_3d.unproject_position(Vector3(float(tile.x), 0.0, float(tile.y)))
+
+
+func _mountain_shared_vertices_are_watertight(vertices: PackedVector3Array, subdivisions: int) -> bool:
+	var height_by_grid_point := {}
+	for vertex in vertices:
+		var grid_point := Vector2i(roundi(vertex.x * subdivisions), roundi(vertex.z * subdivisions))
+		if height_by_grid_point.has(grid_point):
+			if absf(float(height_by_grid_point[grid_point]) - vertex.y) > 0.0001:
+				return false
+		else:
+			height_by_grid_point[grid_point] = vertex.y
+	return true
+
+
+func _mountain_slopes_are_bounded(vertices: PackedVector3Array, subdivisions: int, max_height_step: float) -> bool:
+	var heights := {}
+	for vertex in vertices:
+		var grid_point := Vector2i(roundi(vertex.x * subdivisions), roundi(vertex.z * subdivisions))
+		heights[grid_point] = vertex.y
+	for grid_point: Vector2i in heights:
+		for offset: Vector2i in [Vector2i.RIGHT, Vector2i.DOWN]:
+			var neighbor: Vector2i = grid_point + offset
+			if heights.has(neighbor) and absf(float(heights[grid_point]) - float(heights[neighbor])) > max_height_step + 0.0001:
+				return false
+	return true
 
 
 func _assert_eight_direction_path(tiles: Array[Vector2i]) -> void:

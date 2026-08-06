@@ -2,10 +2,12 @@ extends Node3D
 
 const TileVisualCatalog := preload("res://scripts/tile_visual_catalog.gd")
 
-const TILE_PLANE_SIZE := 0.96
+const GRID_TILE_PLANE_SIZE := 0.96
+const SEAMLESS_TILE_PLANE_SIZE := 1.0
 
 var map_data: RefCounted
 var material_by_terrain := {}
+var grid_visible := true
 
 
 func _ready() -> void:
@@ -14,6 +16,13 @@ func _ready() -> void:
 
 func set_map_data(next_map_data: RefCounted) -> void:
 	map_data = next_map_data
+	_rebuild()
+
+
+func set_grid_visible(next_grid_visible: bool) -> void:
+	if grid_visible == next_grid_visible:
+		return
+	grid_visible = next_grid_visible
 	_rebuild()
 
 
@@ -33,7 +42,8 @@ func _rebuild() -> void:
 			buckets[terrain_id].append(Vector2i(x, y))
 
 	var plane := PlaneMesh.new()
-	plane.size = Vector2(TILE_PLANE_SIZE, TILE_PLANE_SIZE)
+	var tile_plane_size := GRID_TILE_PLANE_SIZE if grid_visible else SEAMLESS_TILE_PLANE_SIZE
+	plane.size = Vector2(tile_plane_size, tile_plane_size)
 
 	for terrain_id in buckets.keys():
 		var tiles: Array = buckets[terrain_id]
