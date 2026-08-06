@@ -1,0 +1,131 @@
+name: Build and deploy Godot Web
+
+on:
+  push:
+    branches:
+      - main
+
+  # Gör det möjligt att starta workflowen manuellt.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: "4.7"
+  GODOT_RELEASE: "stable"
+  EXPORT_PRESET: "Web"
+  BUILD_DIR: "build/web"
+
+jobs:
+  build:
+    name: Build Godot Web export
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Download Godot
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          GODOT_FILE="Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64.zip"
+          GODOT_URL="https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-${GODOT_RELEASE}/${GODOT_FILE}"
+
+          curl --fail --location \
+            --output godot.zip \
+            "${GODOT_URL}"
+
+          unzip godot.zip -d godot-bin
+
+          mv "godot-bin/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64" godot
+          chmod +x godot
+
+          ./godot --version
+
+      - name: Install Godot export templates
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          TEMPLATE_FILE="Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_export_templates.tpz"
+          TEMPLATE_URL="https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-${GODOT_RELEASE}/${TEMPLATE_FILE}"
+
+          curl --fail --location \
+            --output export_templates.tpz \
+            "${TEMPLATE_URL}"
+
+          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_RELEASE}"
+
+          unzip export_templates.tpz -d export-templates
+
+          mv export-templates/templates/* \
+            "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_RELEASE}/"
+
+      - name: Import Godot project
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          ./godot \
+            --headless \
+            --editor \
+            --path "$GITHUB_WORKSPACE" \
+            --quit
+
+      - name: Export Web build
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          rm -rf "${BUILD_DIR}"
+          mkdir -p "${BUILD_DIR}"
+
+          ./godot \
+            --headless \
+            --path "$GITHUB_WORKSPACE" \
+            --export-release "${EXPORT_PRESET}" \
+            "${BUILD_DIR}/index.html"
+
+      - name: Verify export
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          test -f "${BUILD_DIR}/index.html"
+
+          echo "Exported files:"
+          find "${BUILD_DIR}" -maxdepth 1 -type f -exec du -h {} \; | sort -h
+
+          echo "Total build size:"
+          du -sh "${BUILD_DIR}"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: build/web
+
+  deploy:
+    name: Deploy GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
