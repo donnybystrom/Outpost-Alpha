@@ -279,11 +279,12 @@ func select_workers_in_rect(world_rect: Rect2, world_to_screen: Callable) -> int
 
 func select_worker_near(screen_position: Vector2, world_to_screen: Callable, radius: float = 10.0) -> bool:
 	var closest_id := -1
-	var closest_distance := radius
+	var closest_distance := INF
 	for worker in workers:
 		var worker_screen_position: Vector2 = world_to_screen.call(worker["position"])
 		var distance := worker_screen_position.distance_to(screen_position)
-		if distance <= closest_distance:
+		var selection_radius := 28.0 if _is_vehicle_role(worker.get("role", WORKER_ROLE)) else radius
+		if distance <= selection_radius and distance < closest_distance:
 			closest_id = int(worker["id"])
 			closest_distance = distance
 	selected_unit_ids.clear()

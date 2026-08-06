@@ -19,6 +19,7 @@ const SPRITE_DRILLING_MACHINE_NORTH_EAST := Rect2i(222, 3, 41, 28)
 
 var unit_state: RefCounted
 var unit_atlas: Texture2D
+var map_position_projector := Callable()
 var redraw_requests: int = 0
 var draw_calls: int = 0
 var last_draw_usec: int = 0
@@ -35,6 +36,11 @@ func _ready() -> void:
 func set_unit_state(next_unit_state: RefCounted) -> void:
 	unit_state = next_unit_state
 	request_redraw("set_unit_state")
+
+
+func set_map_position_projector(projector: Callable) -> void:
+	map_position_projector = projector
+	request_redraw("map_position_projector")
 
 
 func request_redraw(reason: String) -> void:
@@ -203,6 +209,9 @@ func _worker_visual_offset(worker: Dictionary) -> Vector2:
 
 
 func map_position_to_screen(map_position: Vector2) -> Vector2:
+	if map_position_projector.is_valid():
+		var viewport_position: Vector2 = map_position_projector.call(map_position)
+		return get_global_transform_with_canvas().affine_inverse() * viewport_position
 	return Vector2(
 		(map_position.x - map_position.y) * HALF_TILE.x,
 		(map_position.x + map_position.y) * HALF_TILE.y

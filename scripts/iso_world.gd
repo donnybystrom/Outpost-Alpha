@@ -91,7 +91,7 @@ func _ready() -> void:
 	_generate_world()
 	_place_starting_hq()
 	_configure_navigation()
-	unit_state.reset(_nearest_spawn_tile(map_data.start_tile), colony_state.population)
+	unit_state.reset(_nearest_spawn_tile(map_data.start_tile), 0)
 	_build_render_layers()
 	set_process(true)
 	request_redraw("ready")
@@ -118,7 +118,7 @@ func regenerate(next_path_count: int, next_min_build_radius: int, next_max_build
 	selected_building_id = -1
 	_place_starting_hq()
 	_configure_navigation()
-	unit_state.reset(_nearest_spawn_tile(map_data.start_tile), colony_state.population)
+	unit_state.reset(_nearest_spawn_tile(map_data.start_tile), 0)
 	if terrain_layer != null:
 		terrain_layer.set_map_data(map_data)
 	if road_layer != null:

@@ -833,6 +833,7 @@ func _ensure_world() -> void:
 	input_controller.name = "MapInputController"
 	input_controller.configure(world, camera, camera_3d)
 	add_child(input_controller)
+	world.unit_layer.set_map_position_projector(Callable(input_controller, "map_position_to_viewport"))
 
 
 func _set_world_active(active: bool) -> void:
@@ -1172,6 +1173,8 @@ func _sync_unit_3d_layer() -> void:
 		unit_3d_layer.set_unit_state(world.unit_state)
 	else:
 		unit_3d_layer.sync_units()
+	if world.unit_layer != null:
+		world.unit_layer.request_redraw("camera_projection")
 
 
 func _on_camera_view_rotation_dragged(relative_pixels: float) -> void:

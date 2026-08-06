@@ -421,8 +421,8 @@ func _initialize() -> void:
 		quit(1)
 		return
 
-	if world.unit_state == null or world.unit_state.workers.size() != world.colony_state.population:
-		push_error("Sandbox should spawn one worker unit per starting colonist.")
+	if world.unit_state == null or not world.unit_state.workers.is_empty():
+		push_error("Sandbox should not spawn the retired placeholder worker units.")
 		quit(1)
 		return
 
@@ -980,6 +980,18 @@ func _initialize() -> void:
 		quit(1)
 		return
 	root._select_build_tool("none")
+	if not _unit_layer_uses_camera_projection(root, world):
+		push_error("Unit overlays should use the active Camera3D projection after viewport rotation.")
+		quit(1)
+		return
+	var click_unit: Dictionary = world.unit_state.workers[0]
+	var click_unit_viewport_position: Vector2 = input_controller.map_position_to_viewport(click_unit["position"])
+	input_controller.primary_press_at_viewport(click_unit_viewport_position, false)
+	input_controller.primary_release_at_viewport(click_unit_viewport_position)
+	if not world.unit_state.is_selected(int(click_unit["id"])):
+		push_error("Clicking a projected 3D unit should select it after viewport rotation.")
+		quit(1)
+		return
 	var selection_rect: Rect2 = _worker_selection_viewport_rect(root, world)
 	input_controller.primary_press_at_viewport(selection_rect.position, false)
 	input_controller.primary_drag_at_viewport(selection_rect.position + selection_rect.size)
@@ -997,6 +1009,10 @@ func _initialize() -> void:
 		return
 	if not _selected_workers_have_unique_targets(world):
 		push_error("Selected worker move command should spread workers into unique formation targets.")
+		quit(1)
+		return
+	if not _selected_worker_targets_are_anchored_at(world, worker_target):
+		push_error("Rotated-view move command should remain anchored at the clicked map tile.")
 		quit(1)
 		return
 	var empty_click_tile: Vector2i = _find_empty_worker_click_tile(world)
@@ -1190,6 +1206,31 @@ func _selected_workers_have_unique_targets(world: Node) -> bool:
 			selected_count += 1
 			targets[worker["target_tile"]] = true
 	return selected_count > 1 and targets.size() > 1
+
+
+func _selected_worker_targets_are_anchored_at(world: Node, anchor: Vector2i) -> bool:
+	var found_anchor := false
+	for worker in world.unit_state.workers:
+		if not world.unit_state.is_selected(int(worker["id"])):
+			continue
+		var target: Vector2i = worker["target_tile"]
+		if target == anchor:
+			found_anchor = true
+		if maxi(absi(target.x - anchor.x), absi(target.y - anchor.y)) > 1:
+			return false
+	return found_anchor
+
+
+func _unit_layer_uses_camera_projection(root: Node, world: Node) -> bool:
+	for worker in world.unit_state.workers:
+		var local_position: Vector2 = world.unit_layer.map_position_to_screen(worker["position"])
+		var rendered_viewport_position: Vector2 = world.unit_layer.get_global_transform_with_canvas() * local_position
+		var expected_viewport_position: Vector2 = root.camera_3d.unproject_position(
+			Vector3(worker["position"].x, 0.0, worker["position"].y)
+		)
+		if rendered_viewport_position.distance_to(expected_viewport_position) > 0.5:
+			return false
+	return not world.unit_state.workers.is_empty()
 
 
 func _set_unit_by_id(unit_state: RefCounted, unit_id: int, next_unit: Dictionary) -> void:
