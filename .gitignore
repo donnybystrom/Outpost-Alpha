@@ -1,10 +1,18 @@
+# Godot-generated files
 .godot/
+
+# Local exports
+build/
+docs/
+
+
+# rest
 .import/
 export/
-export_presets.cfg
 *.tmp
 *.translation
 *.remap
 
 .DS_Store
-docs/
+
+
