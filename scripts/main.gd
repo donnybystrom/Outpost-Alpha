@@ -22,7 +22,9 @@ const DEFAULT_TREE_DENSITY_PERCENT := 64
 const DEFAULT_TREE_SIZE_PERCENT := 100
 const RUNTIME_CONFIG_PATH := "res://config/runtime.cfg"
 const START_SCREEN_BACKGROUND_PATH := "res://assets/start_screen_background.png"
-const START_MUSIC_PATH := "res://assets/audio/music/orbital_quiet.mp3"
+const INTRO_MUSIC_PATH := "res://assets/audio/music/intro_dystopian_nightmare.mp3"
+const GAME_MUSIC_PATH := "res://assets/audio/music/empty_orbit_signal.mp3"
+const MUSIC_CROSSFADE_SECONDS := 1.5
 const SUN_ROTATION_DEGREES := Vector3(-73.0, -28.0, 0.0)
 const SUN_LIGHT_COLOR := Color8(255, 242, 216)
 const SUN_LIGHT_ENERGY := 1.12
@@ -49,6 +51,7 @@ var background: CanvasLayer
 var background_fill: ColorRect
 var main_menu_background: TextureRect
 var music_player: AudioStreamPlayer
+var music_fade_player: AudioStreamPlayer
 var ui: CanvasLayer
 var ui_root: Control
 var main_menu_root: Control
@@ -93,6 +96,7 @@ var music_volume_db: float = -10.0
 var _camera_initialized: bool = false
 var _layout_queued: bool = false
 var _performance_update_elapsed: float = 0.0
+var _music_tween: Tween
 
 
 func _ready() -> void:
@@ -107,8 +111,12 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	if _music_tween != null:
+		_music_tween.kill()
 	if music_player != null:
 		music_player.stop()
+	if music_fade_player != null:
+		music_fade_player.stop()
 
 
 func _process(delta: float) -> void:
@@ -164,27 +172,64 @@ func _build_music_player() -> void:
 	music_player.bus = "Master"
 	add_child(music_player)
 
+	music_fade_player = AudioStreamPlayer.new()
+	music_fade_player.name = "MusicFadePlayer"
+	music_fade_player.bus = "Master"
+	add_child(music_fade_player)
+
 	if not music_enabled:
 		return
 
-	if not ResourceLoader.exists(START_MUSIC_PATH):
-		push_warning("Missing start music: %s" % START_MUSIC_PATH)
-		return
-
-	var music_stream := load(START_MUSIC_PATH) as AudioStream
-	if music_stream == null:
-		push_warning("Could not load start music: %s" % START_MUSIC_PATH)
-		return
-	if music_stream is AudioStreamMP3:
-		(music_stream as AudioStreamMP3).loop = true
-	music_player.stream = music_stream
+	music_player.stream = _load_looping_music(INTRO_MUSIC_PATH)
 	music_player.volume_db = music_volume_db
+	music_fade_player.volume_linear = 0.0
 
 
 func _start_music() -> void:
 	if not music_enabled or music_player == null or music_player.stream == null or music_player.playing:
 		return
 	music_player.play()
+
+
+func _load_looping_music(path: String) -> AudioStream:
+	if not ResourceLoader.exists(path):
+		push_warning("Missing music: %s" % path)
+		return null
+	var music_stream := load(path) as AudioStream
+	if music_stream == null:
+		push_warning("Could not load music: %s" % path)
+		return null
+	if music_stream is AudioStreamMP3:
+		(music_stream as AudioStreamMP3).loop = true
+	return music_stream
+
+
+func _crossfade_music_to(path: String) -> void:
+	if not music_enabled or music_player == null or music_fade_player == null:
+		return
+	if music_player.stream != null and music_player.stream.resource_path == path and music_player.playing:
+		return
+
+	var next_stream := _load_looping_music(path)
+	if next_stream == null:
+		return
+	if _music_tween != null:
+		_music_tween.kill()
+
+	var outgoing_player := music_player
+	var incoming_player := music_fade_player
+	incoming_player.stop()
+	incoming_player.stream = next_stream
+	incoming_player.volume_linear = 0.0
+	incoming_player.play()
+	music_player = incoming_player
+	music_fade_player = outgoing_player
+
+	var target_volume_linear := db_to_linear(music_volume_db)
+	_music_tween = create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_music_tween.tween_property(outgoing_player, "volume_linear", 0.0, MUSIC_CROSSFADE_SECONDS)
+	_music_tween.parallel().tween_property(incoming_player, "volume_linear", target_volume_linear, MUSIC_CROSSFADE_SECONDS)
+	_music_tween.chain().tween_callback(Callable(outgoing_player, "stop"))
 
 
 func _load_runtime_config() -> void:
@@ -718,6 +763,7 @@ func _add_admin_spin_box(parent: VBoxContainer, label_text: String, min_value: i
 
 func _show_main_menu() -> void:
 	app_state = AppState.MAIN_MENU
+	_crossfade_music_to(INTRO_MUSIC_PATH)
 	admin_panel_visible = false
 	main_menu_root.visible = true
 	sandbox_root.visible = false
@@ -734,6 +780,7 @@ func _show_sandbox_setup() -> void:
 
 func _start_sandbox(next_dev_mode: bool = false) -> void:
 	app_state = AppState.IN_GAME
+	_crossfade_music_to(GAME_MUSIC_PATH)
 	is_dev_mode = next_dev_mode
 	admin_panel_visible = false
 	main_menu_root.visible = false

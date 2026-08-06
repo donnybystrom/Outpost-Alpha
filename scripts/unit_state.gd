@@ -395,7 +395,7 @@ func _desired_velocity(unit: Dictionary, pathfinding_grid: RefCounted) -> Vector
 		return Vector2.ZERO
 
 	var max_speed := _speed_for_role(role)
-	if pathfinding_grid != null and pathfinding_grid.is_fast_tile(_tile_for_position(position)):
+	if pathfinding_grid != null and pathfinding_grid.is_fast_position(position):
 		max_speed *= ROAD_SPEED_MULTIPLIER
 	var final_position := Vector2(path[path.size() - 1])
 	var arrival_scale := clampf(position.distance_to(final_position) / ARRIVAL_SLOW_DISTANCE, 0.12, 1.0)

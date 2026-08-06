@@ -147,7 +147,9 @@ func _clear_road_tile(tile: Vector2i) -> void:
 
 
 func _blit_road_tile(tile: Vector2i) -> void:
-	var road_mask: int = AutoTile.road_mask(map_data, tile)
+	# The legacy 2D atlas only contains the 16 cardinal variants. The active 3D
+	# renderer handles all eight road directions.
+	var road_mask: int = AutoTile.road_mask(map_data, tile) & AutoTile.CARDINAL_MASK
 	var source_rect: Rect2i = Rect2i(Vector2i(AutoTileAtlas.road_column(road_mask), ROAD_ATLAS_ROW) * TILE_SIZE, TILE_SIZE)
 	cached_road_image.blend_rect(atlas_image, source_rect, _tile_target_position(tile))
 

@@ -53,6 +53,20 @@ func _assert_path_smoothing(pathfinding_grid: RefCounted, map_data: RefCounted) 
 	for x in range(3, 11):
 		map_data.set_road(Vector2i(x, 8), false)
 
+	for offset in range(0, 7):
+		map_data.set_road(Vector2i(3 + offset, 3 + offset), true)
+	var diagonal_road_path: Array[Vector2i] = pathfinding_grid.find_path(Vector2i(3, 3), Vector2i(9, 9))
+	if diagonal_road_path.size() != 7:
+		_fail("Eight-direction pathfinding should follow a direct diagonal road; path=%s" % [diagonal_road_path])
+		return
+	for offset in range(0, 7):
+		var sample := Vector2(3 + offset, 3 + offset).lerp(Vector2(4 + offset, 4 + offset), 0.5) if offset < 6 else Vector2(9, 9)
+		if not pathfinding_grid.is_fast_position(sample):
+			_fail("The widened road corridor should cover diagonal movement between road tiles.")
+			return
+	for offset in range(0, 7):
+		map_data.set_road(Vector2i(3 + offset, 3 + offset), false)
+
 	map_data.set_terrain(Vector2i(7, 6), 5)
 	if pathfinding_grid.has_clear_path_segment(Vector2(3, 3), Vector2(10, 8), 0.38):
 		_fail("Radius-aware smoothing should reject a segment through blocked terrain.")

@@ -36,11 +36,15 @@ func _initialize() -> void:
 		return
 	if root.music_enabled:
 		if root.music_player.stream == null:
-			push_error("Main scene should load the start music stream when music is enabled.")
+			push_error("Main scene should load the intro music stream when music is enabled.")
+			quit(1)
+			return
+		if root.music_player.stream.resource_path != root.INTRO_MUSIC_PATH:
+			push_error("Main menu should play intro_dystopian_nightmare.mp3.")
 			quit(1)
 			return
 		if root.music_player.stream is AudioStreamMP3 and not (root.music_player.stream as AudioStreamMP3).loop:
-			push_error("Start music MP3 should be configured to loop.")
+			push_error("Intro music MP3 should be configured to loop.")
 			quit(1)
 			return
 		if not root.music_player.playing:
@@ -69,10 +73,19 @@ func _initialize() -> void:
 		push_error("Sandbox start did not create the expected world, camera and input nodes.")
 		quit(1)
 		return
-	if root.music_enabled and not root.music_player.playing:
-		push_error("Start music should continue playing after entering Sandbox.")
-		quit(1)
-		return
+	if root.music_enabled:
+		if not root.music_player.playing or root.music_player.stream.resource_path != root.GAME_MUSIC_PATH:
+			push_error("Sandbox should switch to the looping empty_orbit_signal.mp3 track.")
+			quit(1)
+			return
+		if root.music_player.stream is AudioStreamMP3 and not (root.music_player.stream as AudioStreamMP3).loop:
+			push_error("Sandbox music MP3 should be configured to loop.")
+			quit(1)
+			return
+		if not root.music_fade_player.playing or root._music_tween == null or not root._music_tween.is_running():
+			push_error("Entering Sandbox should crossfade from intro music instead of cutting it off.")
+			quit(1)
+			return
 
 	var terrain_layer := world.get_node_or_null("TerrainTileLayer")
 	if terrain_layer == null:
@@ -112,6 +125,16 @@ func _initialize() -> void:
 	var road_normals: PackedVector3Array = road_arrays[Mesh.ARRAY_NORMAL]
 	if road_normals.is_empty():
 		push_error("Road3DLayer should generate normals so sunlight can shade road meshes.")
+		quit(1)
+		return
+	if road_3d_layer.DECK_WIDTH < 0.60:
+		push_error("3D roads should provide a visibly wider driving deck.")
+		quit(1)
+		return
+	var corner_connections: Array[int] = [1, 2]
+	var curved_centerline: PackedVector2Array = road_3d_layer._centerline_for_connections(corner_connections)
+	if curved_centerline.size() <= 2:
+		push_error("3D road corners should generate a smooth curved centerline.")
 		quit(1)
 		return
 	var building_3d_layer := root.get_node_or_null("Building3DLayer")
@@ -585,6 +608,12 @@ func _initialize() -> void:
 		push_error("Single road hover preview should not report connected neighbors on an empty map.")
 		quit(1)
 		return
+	var diagonal_preview_tiles: Array[Vector2i] = [road_tile, road_tile + Vector2i(1, 1)]
+	var diagonal_preview_mask: int = overlay_layer._road_preview_mask(road_tile, diagonal_preview_tiles)
+	if (diagonal_preview_mask & 32) == 0:
+		push_error("Road placement preview should retain diagonal drag connections.")
+		quit(1)
+		return
 	var road_feedback: Array[Dictionary] = world._get_placement_feedback()
 	if road_feedback.size() != 1 or not bool(road_feedback[0]["valid"]):
 		push_error("Road placement feedback should mark a clear hovered tile as valid.")
@@ -599,8 +628,8 @@ func _initialize() -> void:
 		push_error("3D road layer did not track the newly placed road tile.")
 		quit(1)
 		return
-	if road_3d_layer.last_cells_processed > 5:
-		push_error("3D road edit should recalculate only the edited road tile and its cardinal neighbors.")
+	if road_3d_layer.last_chunks_rebuilt > 4 or road_3d_layer.last_cells_processed > road_3d_layer.CHUNK_SIZE * road_3d_layer.CHUNK_SIZE * road_3d_layer.last_chunks_rebuilt:
+		push_error("Road edits should rebuild only the local chunks around the changed tile.")
 		quit(1)
 		return
 	if road_layer.last_cells_processed > 25:
@@ -635,6 +664,17 @@ func _initialize() -> void:
 	world.map_data.set_terrain(forest_tile, 1)
 	if world.pathfinding_grid.is_tile_passable(forest_tile):
 		push_error("Worker pathfinding should treat forest terrain as impassable.")
+		quit(1)
+		return
+	world.hover_tile(forest_tile)
+	road_feedback = world._get_placement_feedback()
+	if road_feedback.size() != 1 or bool(road_feedback[0]["valid"]):
+		push_error("Road placement feedback should mark forest terrain as invalid.")
+		quit(1)
+		return
+	world.paint_tile(forest_tile)
+	if world.map_data.has_road(forest_tile):
+		push_error("Road placement should not commit on forest terrain.")
 		quit(1)
 		return
 	if world.pathfinding_grid.movement_cost(road_tile) >= world.pathfinding_grid.movement_cost(world.map_data.start_tile):
@@ -1027,7 +1067,7 @@ func _initialize() -> void:
 	var road_line: Array[Vector2i] = _find_road_line(world)
 	var line_start: Vector2i = road_line[0]
 	var line_end: Vector2i = road_line[1]
-	_assert_cardinal_path(world._line_tiles(world.map_data.start_tile + Vector2i(-4, -4), world.map_data.start_tile + Vector2i(-1, -1)))
+	_assert_eight_direction_path(world._line_tiles(world.map_data.start_tile + Vector2i(-4, -4), world.map_data.start_tile + Vector2i(-1, -1)))
 	var line_start_viewport_position: Vector2 = _tile_to_viewport(root, line_start)
 	var line_end_viewport_position: Vector2 = _tile_to_viewport(root, line_end)
 	root._select_build_tool("road")
@@ -1244,13 +1284,19 @@ func _tile_to_viewport(root: Node, tile: Vector2i) -> Vector2:
 	return root.camera_3d.unproject_position(Vector3(float(tile.x), 0.0, float(tile.y)))
 
 
-func _assert_cardinal_path(tiles: Array[Vector2i]) -> void:
+func _assert_eight_direction_path(tiles: Array[Vector2i]) -> void:
+	var found_diagonal := false
 	for index in range(1, tiles.size()):
 		var delta: Vector2i = tiles[index] - tiles[index - 1]
-		if absi(delta.x) + absi(delta.y) != 1:
-			push_error("Road line path contains a diagonal gap between %s and %s." % [tiles[index - 1], tiles[index]])
+		if maxi(absi(delta.x), absi(delta.y)) != 1:
+			push_error("Road line path contains a disconnected gap between %s and %s." % [tiles[index - 1], tiles[index]])
 			quit(1)
 			return
+		if absi(delta.x) == 1 and absi(delta.y) == 1:
+			found_diagonal = true
+	if not found_diagonal:
+		push_error("Diagonal road drag should retain diagonal connections instead of becoming a cardinal staircase.")
+		quit(1)
 
 
 func _feedback_marks_tile_invalid(feedback: Array[Dictionary], tile: Vector2i) -> bool:

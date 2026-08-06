@@ -1,8 +1,6 @@
 extends Node2D
 
-const IsoTileRenderer := preload("res://scripts/iso_tile_renderer.gd")
 const AutoTile := preload("res://scripts/auto_tile.gd")
-const AutoTileAtlas := preload("res://scripts/autotile_atlas.gd")
 const BuildingCatalog := preload("res://scripts/building_catalog.gd")
 
 const TILE_SIZE := Vector2i(32, 16)
@@ -219,15 +217,21 @@ func _draw_road_preview_tile(tile: Vector2i, road_mask: int) -> void:
 	if not _is_inside_map(tile):
 		return
 	last_cells_processed += 1
-
-	if road_atlas == null:
-		var points: PackedVector2Array = _tile_polygon(tile)
-		draw_colored_polygon(points, Color8(80, 84, 80, 125))
+	var center := map_to_screen(tile)
+	if road_mask == 0:
+		draw_circle(center, 7.0, Color(0.27, 0.28, 0.25, 0.52))
+		draw_circle(center, 5.0, Color(0.38, 0.38, 0.33, 0.58))
 		return
-
-	var source_rect: Rect2 = Rect2(Vector2(Vector2i(AutoTileAtlas.road_column(road_mask), IsoTileRenderer.ROAD_ATLAS_ROW) * TILE_SIZE), Vector2(TILE_SIZE))
-	var target_rect: Rect2 = Rect2(map_to_screen(tile) - HALF_TILE, Vector2(TILE_SIZE))
-	draw_texture_rect_region(road_atlas, target_rect, source_rect, Color(1.0, 1.0, 1.0, 0.46))
+	for bit in AutoTile.ROAD_DIRECTIONS:
+		if (road_mask & bit) == 0:
+			continue
+		var neighbor_center := map_to_screen(tile + AutoTile.ROAD_DIRECTIONS[bit])
+		var end := center.lerp(neighbor_center, 0.5)
+		var screen_normal := center.direction_to(end).orthogonal()
+		draw_line(center, end, Color(0.27, 0.28, 0.25, 0.52), 10.0, true)
+		draw_line(center, end, Color(0.38, 0.38, 0.33, 0.58), 7.0, true)
+		draw_line(center + screen_normal * 2.0, end + screen_normal * 2.0, Color(0.19, 0.21, 0.19, 0.46), 1.2, true)
+		draw_line(center - screen_normal * 2.0, end - screen_normal * 2.0, Color(0.19, 0.21, 0.19, 0.46), 1.2, true)
 
 
 func _draw_building_sprite_preview(tile: Vector2i, building_type: String) -> void:
@@ -280,10 +284,19 @@ func _road_preview_mask(tile: Vector2i, preview_tiles: Array[Vector2i]) -> int:
 	if map_data == null:
 		return mask
 
-	for bit in AutoTile.CARDINAL_DIRECTIONS:
-		var neighbor: Vector2i = tile + AutoTile.CARDINAL_DIRECTIONS[bit]
-		if map_data.has_road(neighbor) or preview_tiles.has(neighbor):
-			mask |= bit
+	for bit in AutoTile.ROAD_DIRECTIONS:
+		var direction: Vector2i = AutoTile.ROAD_DIRECTIONS[bit]
+		var neighbor: Vector2i = tile + direction
+		if not map_data.has_road(neighbor) and not preview_tiles.has(neighbor):
+			continue
+		if direction.x != 0 and direction.y != 0:
+			var bridge_x := tile + Vector2i(direction.x, 0)
+			var bridge_y := tile + Vector2i(0, direction.y)
+			if map_data.has_road(bridge_x) or preview_tiles.has(bridge_x):
+				continue
+			if map_data.has_road(bridge_y) or preview_tiles.has(bridge_y):
+				continue
+		mask |= bit
 	return mask
 
 

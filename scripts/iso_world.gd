@@ -776,7 +776,7 @@ func _can_place_tool_tile(tile: Vector2i) -> bool:
 
 
 func _can_place_road_tile(tile: Vector2i) -> bool:
-	return _is_inside_map(tile) and map_data.get_terrain(tile) <= 1 and (colony_state == null or not colony_state.is_occupied(tile))
+	return _is_inside_map(tile) and map_data.get_terrain(tile) == 0 and (colony_state == null or not colony_state.is_occupied(tile))
 
 
 func _can_place_building_footprint_tile(tile: Vector2i) -> bool:
@@ -796,7 +796,7 @@ func _connect_building_vehicle_entry(building: Dictionary) -> void:
 		return
 	if colony_state != null and colony_state.is_occupied(approach_tile):
 		return
-	if map_data.get_terrain(approach_tile) > 1:
+	if map_data.get_terrain(approach_tile) != 0:
 		return
 	map_data.set_road(approach_tile, true)
 	_refresh_road_tile(approach_tile)
@@ -985,13 +985,10 @@ func _line_tiles(start: Vector2i, end: Vector2i) -> Array[Vector2i]:
 		if doubled_error > -dy:
 			error -= dy
 			current.x += sx
-			_append_unique_tile(tiles, current)
-		if current == end:
-			break
 		if doubled_error < dx:
 			error += dx
 			current.y += sy
-			_append_unique_tile(tiles, current)
+		_append_unique_tile(tiles, current)
 
 	return tiles
 

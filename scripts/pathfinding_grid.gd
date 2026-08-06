@@ -1,18 +1,28 @@
 extends RefCounted
 
+const AutoTile := preload("res://scripts/auto_tile.gd")
+
 const TERRAIN_FOREST := 1
 const TERRAIN_MOUNTAIN := 5
 const ROAD_COST := 0.70
 const DEFAULT_COST := 1.0
 const PATH_SAMPLE_SPACING := 0.10
 const SMOOTHING_COST_TOLERANCE := 1.03
-const SMOOTHING_ROAD_FRACTION_TOLERANCE := 0.15
+const SMOOTHING_ROAD_FRACTION_TOLERANCE := 0.05
+const ROAD_CORRIDOR_HALF_WIDTH := 0.38
+const DIAGONAL_DISTANCE := 1.41421356237
 
 const CARDINAL_DIRECTIONS: Array[Vector2i] = [
 	Vector2i(0, -1),
 	Vector2i(1, 0),
 	Vector2i(0, 1),
 	Vector2i(-1, 0),
+]
+const DIAGONAL_DIRECTIONS: Array[Vector2i] = [
+	Vector2i(1, -1),
+	Vector2i(1, 1),
+	Vector2i(-1, 1),
+	Vector2i(-1, -1),
 ]
 
 var map_data: RefCounted
@@ -48,7 +58,7 @@ func find_path(start: Vector2i, goal: Vector2i) -> Array[Vector2i]:
 		for neighbor in _passable_neighbors(current):
 			if closed.has(neighbor):
 				continue
-			var tentative_g_score: float = float(g_score[current]) + movement_cost(neighbor)
+			var tentative_g_score: float = float(g_score[current]) + _step_movement_cost(current, neighbor)
 			if not g_score.has(neighbor) or tentative_g_score < float(g_score[neighbor]):
 				came_from[neighbor] = current
 				g_score[neighbor] = tentative_g_score
@@ -78,6 +88,41 @@ func movement_cost(tile: Vector2i) -> float:
 
 func is_fast_tile(tile: Vector2i) -> bool:
 	return map_data != null and map_data.has_road(tile)
+
+
+func is_fast_position(position: Vector2) -> bool:
+	if map_data == null:
+		return false
+	var center_tile := _tile_for_position(position)
+	for y in range(center_tile.y - 1, center_tile.y + 2):
+		for x in range(center_tile.x - 1, center_tile.x + 2):
+			var road_tile := Vector2i(x, y)
+			if not map_data.has_road(road_tile):
+				continue
+			var road_center := Vector2(road_tile)
+			if position.distance_to(road_center) <= ROAD_CORRIDOR_HALF_WIDTH:
+				return true
+			for direction in CARDINAL_DIRECTIONS + DIAGONAL_DIRECTIONS:
+				var neighbor := road_tile + direction
+				if AutoTile.roads_connect(map_data, road_tile, direction) and _distance_to_segment(position, road_center, Vector2(neighbor)) <= ROAD_CORRIDOR_HALF_WIDTH:
+					return true
+	return false
+
+
+func movement_cost_at_position(position: Vector2) -> float:
+	return ROAD_COST if is_fast_position(position) else DEFAULT_COST
+
+
+func _step_movement_cost(start: Vector2i, end: Vector2i) -> float:
+	var direction := end - start
+	var distance := DIAGONAL_DISTANCE if direction.x != 0 and direction.y != 0 else 1.0
+	if map_data.has_road(start) and map_data.has_road(end):
+		if AutoTile.roads_connect(map_data, start, direction):
+			return ROAD_COST * distance
+		# Touching corners around a cardinal bend are not a diagonal road.
+		if direction.x != 0 and direction.y != 0:
+			return DEFAULT_COST * distance
+	return movement_cost(end) * distance
 
 
 func smooth_path(start_position: Vector2, raw_path: Array[Vector2i], agent_radius: float) -> Array[Vector2]:
@@ -137,6 +182,16 @@ func _passable_neighbors(tile: Vector2i) -> Array[Vector2i]:
 		var neighbor := tile + direction
 		if is_tile_passable(neighbor):
 			neighbors.append(neighbor)
+	for direction in DIAGONAL_DIRECTIONS:
+		var neighbor := tile + direction
+		if not is_tile_passable(neighbor):
+			continue
+		# Do not let a vehicle squeeze diagonally through two blocked corners.
+		if not is_tile_passable(tile + Vector2i(direction.x, 0)):
+			continue
+		if not is_tile_passable(tile + Vector2i(0, direction.y)):
+			continue
+		neighbors.append(neighbor)
 	return neighbors
 
 
@@ -160,7 +215,11 @@ func _reconstruct_path(came_from: Dictionary, current: Vector2i) -> Array[Vector
 
 
 func _heuristic(a: Vector2i, b: Vector2i) -> float:
-	return float(absi(a.x - b.x) + absi(a.y - b.y)) * ROAD_COST
+	var dx := absi(a.x - b.x)
+	var dy := absi(a.y - b.y)
+	var diagonal_steps := mini(dx, dy)
+	var straight_steps := maxi(dx, dy) - diagonal_steps
+	return (float(diagonal_steps) * DIAGONAL_DISTANCE + float(straight_steps)) * ROAD_COST
 
 
 func _can_smooth_between(points: Array[Vector2], source_index: int, destination_index: int, agent_radius: float) -> bool:
@@ -195,7 +254,7 @@ func _segment_movement_cost(start_position: Vector2, end_position: Vector2) -> f
 	var cost := 0.0
 	for sample_index in range(sample_count):
 		var weight := (float(sample_index) + 0.5) / float(sample_count)
-		cost += movement_cost(_tile_for_position(start_position.lerp(end_position, weight)))
+		cost += movement_cost_at_position(start_position.lerp(end_position, weight))
 	return distance * cost / float(sample_count)
 
 
@@ -207,10 +266,18 @@ func _segment_road_fraction(start_position: Vector2, end_position: Vector2) -> f
 	var road_samples := 0
 	for sample_index in range(sample_count):
 		var weight := (float(sample_index) + 0.5) / float(sample_count)
-		if is_fast_tile(_tile_for_position(start_position.lerp(end_position, weight))):
+		if is_fast_position(start_position.lerp(end_position, weight)):
 			road_samples += 1
 	return float(road_samples) / float(sample_count)
 
 
 func _tile_for_position(position: Vector2) -> Vector2i:
 	return Vector2i(floori(position.x + 0.5), floori(position.y + 0.5))
+
+
+func _distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> float:
+	var segment := end - start
+	if segment.length_squared() <= 0.000001:
+		return point.distance_to(start)
+	var weight := clampf((point - start).dot(segment) / segment.length_squared(), 0.0, 1.0)
+	return point.distance_to(start + segment * weight)
