@@ -95,7 +95,7 @@ func _ready() -> void:
 	pathfinding_grid = PathfindingGrid.new()
 	_building_catalog_modified_time = _get_building_catalog_modified_time()
 	_generate_world()
-	_place_starting_hq()
+	_place_starting_lander()
 	_configure_navigation()
 	unit_state.reset(_nearest_spawn_tile(map_data.start_tile), 0)
 	_build_render_layers()
@@ -123,7 +123,7 @@ func regenerate(next_path_count: int, next_min_build_radius: int, next_max_build
 	_generate_world()
 	colony_state.reset()
 	selected_building_id = -1
-	_place_starting_hq()
+	_place_starting_lander()
 	_configure_navigation()
 	unit_state.reset(_nearest_spawn_tile(map_data.start_tile), 0)
 	if terrain_layer != null:
@@ -668,19 +668,19 @@ func _nearest_spawn_tile(origin: Vector2i) -> Vector2i:
 	return origin
 
 
-func _place_starting_hq() -> void:
+func _place_starting_lander() -> void:
 	if colony_state == null or map_data == null:
 		return
-	var footprint: Vector2i = building_catalog.get_footprint(BuildingCatalog.BUILDING_HQ)
+	var footprint: Vector2i = building_catalog.get_footprint(BuildingCatalog.BUILDING_PLANET_LANDER_MODULE)
 	var origin: Vector2i = map_data.start_tile - Vector2i(floori(float(footprint.x) * 0.5), floori(float(footprint.y) * 0.5))
-	_clear_starting_hq_site(origin, footprint)
-	colony_state.place_starting_hq(origin)
-	var hq_building := colony_state.get_nearest_building_of_type(BuildingCatalog.BUILDING_HQ, map_data.start_tile)
-	if not hq_building.is_empty():
-		_connect_building_vehicle_entry(hq_building)
+	_clear_starting_lander_site(origin, footprint)
+	colony_state.place_starting_lander(origin)
+	var lander := colony_state.get_nearest_building_of_type(BuildingCatalog.BUILDING_PLANET_LANDER_MODULE, map_data.start_tile)
+	if not lander.is_empty():
+		_connect_building_vehicle_entry(lander)
 
 
-func _clear_starting_hq_site(origin: Vector2i, footprint: Vector2i) -> void:
+func _clear_starting_lander_site(origin: Vector2i, footprint: Vector2i) -> void:
 	for y in range(-1, footprint.y + 2):
 		for x in range(-1, footprint.x + 2):
 			var tile := origin + Vector2i(x, y)
@@ -688,6 +688,15 @@ func _clear_starting_hq_site(origin: Vector2i, footprint: Vector2i) -> void:
 				continue
 			map_data.set_terrain(tile, 0)
 			map_data.set_road(tile, false)
+
+
+func complete_starting_lander_landing() -> bool:
+	if colony_state == null or not colony_state.complete_starting_lander_landing():
+		return false
+	_refresh_unit_paths("planet_lander_landed")
+	buildings_changed.emit()
+	colony_changed.emit(colony_state.get_summary_lines())
+	return true
 
 
 func _request_overlay_redraw(reason: String) -> void:
@@ -935,10 +944,10 @@ func _try_command_selected_haulers_to_transport_metal(tile: Vector2i) -> bool:
 		return false
 
 	var hq_building := colony_state.get_nearest_building_of_type(
-		BuildingCatalog.BUILDING_HQ,
+		BuildingCatalog.BUILDING_PLANET_LANDER_MODULE,
 		source_building.get("origin", tile)
 	)
-	if hq_building.is_empty():
+	if hq_building.is_empty() or not hq_building.get("operational", false):
 		return false
 
 	var source_tile: Vector2i = source_building.get("vehicle_approach_tile", source_building.get("origin", tile))

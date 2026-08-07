@@ -29,11 +29,11 @@ Each building definition should describe:
 
 ## 3D Building Models
 
-HQ is the first building rendered from a 3D asset. The model lives in `assets/3D/buildings/hq/base.obj`, with texture files beside it. The unzipped files are the runtime source assets; `hq.zip` can remain as the original package/reference.
+The Planet Lander uses two model sets under `assets/3D/buildings/`: `planet_lander_module_flying` during its opening descent and `planet_lander_module_landed` after touchdown. `PlanetLanderLandingSequence3D` owns the transient flying model, six procedural particle jets, and touchdown handoff. `IsoBuilding3DLayer` renders the landed model from the normal building catalog only after the same colony building record becomes operational.
 
 `IsoBuilding3DLayer` instantiates model-backed buildings from the same `ColonyState` building records used by the 2D layer. It centers the model on the building footprint, applies model config from `building_catalog.gd`, and does not own placement, selection, pathfinding blockers, vehicle entry, storage, health, or HUD state. Those remain in the gameplay data.
 
-While rendering migration is mixed, model-backed buildings should be hidden in `IsoBuildingLayer` to avoid double-rendering the old sprite and the new 3D model.
+While rendering migration is mixed, model-backed buildings should be hidden in `IsoBuildingLayer` to avoid double-rendering an old sprite and a 3D model. Buildings with `landing_state != "landed"` are also skipped by `IsoBuilding3DLayer` so a transition layer can own their temporary visual state.
 
 ## Placement Flow
 

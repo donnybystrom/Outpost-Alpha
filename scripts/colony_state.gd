@@ -7,8 +7,10 @@ const BUILDING_OXYGEN_EXTRACTOR := BuildingCatalog.BUILDING_OXYGEN_EXTRACTOR
 const BUILDING_MACHINE_PARK := BuildingCatalog.BUILDING_MACHINE_PARK
 const BUILDING_MILLING_PLANT := BuildingCatalog.BUILDING_MILLING_PLANT
 const BUILDING_HQ := BuildingCatalog.BUILDING_HQ
+const BUILDING_PLANET_LANDER_MODULE := BuildingCatalog.BUILDING_PLANET_LANDER_MODULE
 const BUILDING_TYPES := BuildingCatalog.BUILDING_TYPES
-const STARTING_HQ_METAL := 950
+const STARTING_LANDER_METAL := 950
+const STARTING_HQ_METAL := STARTING_LANDER_METAL
 
 var building_catalog = BuildingCatalog.new()
 var buildings: Array[Dictionary] = []
@@ -104,6 +106,27 @@ func place_starting_hq(origin: Vector2i) -> bool:
 	return true
 
 
+func place_starting_lander(origin: Vector2i) -> bool:
+	_add_building(BUILDING_PLANET_LANDER_MODULE, origin, BuildingCatalog.ORIENTATION_HORIZONTAL, 0)
+	var index := buildings.size() - 1
+	buildings[index]["operational"] = false
+	buildings[index]["landing_state"] = "descending"
+	return true
+
+
+func complete_starting_lander_landing() -> bool:
+	for index in buildings.size():
+		if buildings[index].get("type", "") != BUILDING_PLANET_LANDER_MODULE:
+			continue
+		var building := buildings[index]
+		building["operational"] = true
+		building["landing_state"] = "landed"
+		building["stored_metal"] = STARTING_LANDER_METAL
+		buildings[index] = building
+		return true
+	return false
+
+
 func _add_building(building_type: String, origin: Vector2i, orientation := BuildingCatalog.ORIENTATION_HORIZONTAL, stored_metal := 0) -> void:
 	buildings.append({
 		"id": _next_building_id,
@@ -195,7 +218,7 @@ func get_building_stored_metal(building_id: int) -> int:
 func get_hq_stored_metal() -> int:
 	var total := 0
 	for building in buildings:
-		if building.get("type", "") == BUILDING_HQ:
+		if building.get("type", "") == BUILDING_PLANET_LANDER_MODULE and building.get("operational", false):
 			total += int(building.get("stored_metal", 0))
 	return total
 
@@ -208,7 +231,7 @@ func spend_hq_metal(amount: int) -> bool:
 
 	var remaining := amount
 	for index in buildings.size():
-		if buildings[index].get("type", "") != BUILDING_HQ:
+		if buildings[index].get("type", "") != BUILDING_PLANET_LANDER_MODULE or not buildings[index].get("operational", false):
 			continue
 		var building := buildings[index]
 		var stored_metal := int(building.get("stored_metal", 0))
@@ -246,6 +269,8 @@ func deliver_metal_to_building(building_id: int, amount: int) -> bool:
 		if int(buildings[index]["id"]) != building_id:
 			continue
 		var building := buildings[index]
+		if not building.get("operational", true):
+			return false
 		building["stored_metal"] = int(building.get("stored_metal", 0)) + amount
 		buildings[index] = building
 		return true
@@ -365,6 +390,8 @@ func get_building_count(building_type: String) -> int:
 
 
 func get_primary_objective() -> String:
+	if get_hq_stored_metal() <= 0 and get_building_count(BUILDING_PLANET_LANDER_MODULE) > 0:
+		return "Await the Planet Lander's touchdown."
 	if has_oxygen_shortage():
 		return "Build an Oxygen Extractor before reserve oxygen runs out."
 	return "Oxygen support online. Expand the colony."
@@ -384,12 +411,12 @@ func get_summary_lines() -> Array[String]:
 			population,
 			oxygen_days_remaining,
 		],
-		"Buildings: O2 %d  LQ %d  Machine Park %d  Milling %d  HQ %d" % [
+		"Buildings: O2 %d  LQ %d  Machine Park %d  Milling %d  Lander %d" % [
 			get_building_count(BUILDING_OXYGEN_EXTRACTOR),
 			get_building_count(BUILDING_LIVING_QUARTERS),
 			get_building_count(BUILDING_MACHINE_PARK),
 			get_building_count(BUILDING_MILLING_PLANT),
-			get_building_count(BUILDING_HQ),
+			get_building_count(BUILDING_PLANET_LANDER_MODULE),
 		],
 		"Resources: stone %d  ore %d  metal %d" % [
 			resources["stone"],

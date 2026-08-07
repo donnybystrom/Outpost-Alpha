@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Replaced the preplaced starting HQ with a Planet Lander opening sequence using separate flying and landed 3D models.
+- Added six procedural emissive landing jets, touchdown lighting, eased descent, model swap, and operational-state handoff at landing.
+- Changed the Planet Lander to become the colony metal store and Hauler delivery target only after touchdown.
 - Added anchored pinch zoom for Mac trackpads and two-finger mobile touch while preserving mouse-wheel zoom.
 - Added mobile three-finger camera rotation/tilt and `Alt` + Mac trackpad pan as the desktop gesture equivalent.
 - Added centralized camera action mapping with keyboard pan, gamepad left-stick pan, and trigger zoom defaults.

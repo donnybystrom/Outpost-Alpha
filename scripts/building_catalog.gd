@@ -8,6 +8,7 @@ const BUILDING_OXYGEN_EXTRACTOR := "oxygen_extractor"
 const BUILDING_MACHINE_PARK := "machine_park"
 const BUILDING_MILLING_PLANT := "milling_plant"
 const BUILDING_HQ := "hq"
+const BUILDING_PLANET_LANDER_MODULE := "planet_lander_module"
 const UNIT_DRILLING_MACHINE := "drilling_machine"
 const UNIT_HAULER := "hauler"
 
@@ -19,6 +20,11 @@ const HQ_MODEL_EMISSIVE_TEXTURE_PATH := "res://assets/3D/buildings/hq/texture_em
 const HQ_MODEL_NORMAL_TEXTURE_PATH := "res://assets/3D/buildings/hq/texture_normal.png"
 const HQ_MODEL_ROUGHNESS_TEXTURE_PATH := "res://assets/3D/buildings/hq/texture_roughness.png"
 const HQ_MODEL_METALLIC_TEXTURE_PATH := "res://assets/3D/buildings/hq/texture_metallic.png"
+const PLANET_LANDER_MODEL_MESH_PATH := "res://assets/3D/buildings/planet_lander_module_landed/base.obj"
+const PLANET_LANDER_MODEL_DIFFUSE_TEXTURE_PATH := "res://assets/3D/buildings/planet_lander_module_landed/texture_diffuse.png"
+const PLANET_LANDER_MODEL_NORMAL_TEXTURE_PATH := "res://assets/3D/buildings/planet_lander_module_landed/texture_normal.png"
+const PLANET_LANDER_MODEL_ROUGHNESS_TEXTURE_PATH := "res://assets/3D/buildings/planet_lander_module_landed/texture_roughness.png"
+const PLANET_LANDER_MODEL_METALLIC_TEXTURE_PATH := "res://assets/3D/buildings/planet_lander_module_landed/texture_metallic.png"
 const OXYGEN_EXTRACTOR_MODEL_MESH_PATH := "res://assets/3D/buildings/oxygen_extractor/base.obj"
 const OXYGEN_EXTRACTOR_MODEL_DIFFUSE_TEXTURE_PATH := "res://assets/3D/buildings/oxygen_extractor/texture_diffuse.png"
 const OXYGEN_EXTRACTOR_MODEL_EMISSIVE_TEXTURE_PATH := "res://assets/3D/buildings/oxygen_extractor/texture_emissive.png"
@@ -184,6 +190,30 @@ const BUILDING_TYPES := {
 			"roughness_texture": HQ_MODEL_ROUGHNESS_TEXTURE_PATH,
 			"metallic_texture": HQ_MODEL_METALLIC_TEXTURE_PATH,
 			"scale": Vector3(1.35, 1.35, 1.35),
+			"height_offset": 0.04,
+			"rotation_y": 0.0,
+		},
+	},
+	BUILDING_PLANET_LANDER_MODULE: {
+		"name": "Planet Lander",
+		"label": "LANDER",
+		"footprint": Vector2i(3, 3),
+		"population_capacity": 0,
+		"oxygen_capacity": 0,
+		"digger_capacity": 0,
+		"max_health": 480,
+		"power_usage": 30,
+		"metal_cost": 0,
+		"placeable": false,
+		"vehicle_entry": Vector2i(1, 2),
+		"vehicle_approach": Vector2i(1, 3),
+		"model": {
+			"mesh_path": PLANET_LANDER_MODEL_MESH_PATH,
+			"diffuse_texture": PLANET_LANDER_MODEL_DIFFUSE_TEXTURE_PATH,
+			"normal_texture": PLANET_LANDER_MODEL_NORMAL_TEXTURE_PATH,
+			"roughness_texture": PLANET_LANDER_MODEL_ROUGHNESS_TEXTURE_PATH,
+			"metallic_texture": PLANET_LANDER_MODEL_METALLIC_TEXTURE_PATH,
+			"scale": Vector3(1.55, 1.55, 1.55),
 			"height_offset": 0.04,
 			"rotation_y": 0.0,
 		},

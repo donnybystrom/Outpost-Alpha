@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cqmjdjiacq1c8"
-path="res://.godot/imported/shaded.png-ddeadbfc7f59873f33741231a81b5c1d.ctex"
+uid="uid://dsny7rre3vwlx"
+path="res://.godot/imported/texture_roughness.png-57cde92eb60a53e362a5edfae7d24cc0.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/3D/buildings/plant_lander_module_landed/shaded.png"
-dest_files=["res://.godot/imported/shaded.png-ddeadbfc7f59873f33741231a81b5c1d.ctex"]
+source_file="res://assets/3D/buildings/planet_lander_module_landed/texture_roughness.png"
+dest_files=["res://.godot/imported/texture_roughness.png-57cde92eb60a53e362a5edfae7d24cc0.ctex"]
 
 [params]
 

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c8bjdqkvlryuh"
-path="res://.godot/imported/texture_pbr.png-fe25fac6a07308645fe59462e1a1589d.ctex"
+uid="uid://cqmjdjiacq1c8"
+path="res://.godot/imported/shaded.png-b6d57ad3e6eef23fa5fdd3958899b12f.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/3D/buildings/plant_lander_module_flying/texture_pbr.png"
-dest_files=["res://.godot/imported/texture_pbr.png-fe25fac6a07308645fe59462e1a1589d.ctex"]
+source_file="res://assets/3D/buildings/planet_lander_module_landed/shaded.png"
+dest_files=["res://.godot/imported/shaded.png-b6d57ad3e6eef23fa5fdd3958899b12f.ctex"]
 
 [params]
 

@@ -13,6 +13,7 @@ const IsoTerrain3DLayer := preload("res://scripts/iso_terrain_3d_layer.gd")
 const IsoUnit3DLayer := preload("res://scripts/iso_unit_3d_layer.gd")
 const IsoWorld := preload("res://scripts/iso_world.gd")
 const MapInputController := preload("res://scripts/map_input_controller.gd")
+const PlanetLanderLandingSequence3D := preload("res://scripts/planet_lander_landing_sequence_3d.gd")
 
 const BASE_VIEWPORT_SIZE := Vector2(1280, 720)
 const HUD_MAX_WIDTH := 460.0
@@ -46,6 +47,7 @@ var road_3d_layer: IsoRoad3DLayer
 var building_3d_layer: IsoBuilding3DLayer
 var building_preview_3d_layer: IsoBuildingPreview3DLayer
 var unit_3d_layer: IsoUnit3DLayer
+var planet_lander_landing: PlanetLanderLandingSequence3D
 var sun_light: DirectionalLight3D
 var world_environment: WorldEnvironment
 var input_controller: MapInputController
@@ -88,7 +90,6 @@ var oxygen_extractor_button: Button
 var living_quarters_button: Button
 var machine_park_button: Button
 var milling_plant_button: Button
-var hq_button: Button
 var tool_buttons: Array[Button] = []
 var paths_spin_box: SpinBox
 var path_width_spin_box: SpinBox
@@ -696,7 +697,6 @@ func _build_construction_menu() -> void:
 	living_quarters_button = _add_tool_button(build_row, "Living", "building:living_quarters")
 	machine_park_button = _add_tool_button(build_row, "Machines 60", "building:machine_park")
 	milling_plant_button = _add_tool_button(build_row, "Milling 40", "building:milling_plant")
-	hq_button = _add_tool_button(build_row, "HQ", "building:hq")
 	road_tool_button = _add_tool_button(build_row, "Road", "road")
 	_build_road_submenu()
 
@@ -814,7 +814,7 @@ func _build_sharon_briefing() -> void:
 	box.add_child(speaker)
 
 	var message: Label = Label.new()
-	message.text = "You made planetfall. Good. This colony is now our best chance to keep humanity alive.\n\nYour reserve oxygen will last only a few days. Build an Oxygen Extractor first. One module can support up to 5 colonists."
+	message.text = "Planet Lander inbound. Hold the landing zone. This colony is our best chance to keep humanity alive.\n\nOnce the module touches down, your reserve oxygen will last only a few days. Build an Oxygen Extractor first. One module can support up to 5 colonists."
 	message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(message)
 
@@ -927,6 +927,7 @@ func _start_sandbox(next_dev_mode: bool = false) -> void:
 	await get_tree().process_frame
 	loading_root.visible = false
 	game_hud_root.visible = true
+	_start_planet_lander_landing()
 	_sandbox_loading = false
 	sandbox_loading_finished.emit()
 
@@ -998,6 +999,11 @@ func _ensure_world() -> void:
 	building_3d_layer.set_building_catalog(world.building_catalog)
 	building_3d_layer.set_colony_state(world.colony_state)
 
+	planet_lander_landing = PlanetLanderLandingSequence3D.new()
+	add_child(planet_lander_landing)
+	planet_lander_landing.landed.connect(_on_planet_lander_landed)
+	_prepare_planet_lander_landing()
+
 	building_preview_3d_layer = IsoBuildingPreview3DLayer.new()
 	building_preview_3d_layer.name = "BuildingPreview3DLayer"
 	add_child(building_preview_3d_layer)
@@ -1015,7 +1021,7 @@ func _ensure_world() -> void:
 
 	world.terrain_layer.visible = false
 	world.road_layer.visible = false
-	world.building_layer.set_hidden_building_types(["hq"])
+	world.building_layer.set_hidden_building_types(["hq", "planet_lander_module"])
 	world.grid_layer.visible = false
 
 	camera = IsoCamera.new()
@@ -1064,6 +1070,9 @@ func _set_world_active(active: bool) -> void:
 			building_preview_3d_layer.clear_preview()
 	if unit_3d_layer != null:
 		unit_3d_layer.visible = active
+	if planet_lander_landing != null:
+		planet_lander_landing.visible = active and planet_lander_landing.is_landing()
+		planet_lander_landing.process_mode = Node.PROCESS_MODE_INHERIT if active else Node.PROCESS_MODE_DISABLED
 	if sun_light != null:
 		sun_light.visible = active
 	if world_environment != null:
@@ -1125,12 +1134,13 @@ func _apply_sandbox_settings_to_world() -> void:
 	if building_3d_layer != null:
 		building_3d_layer.set_building_catalog(world.building_catalog)
 		building_3d_layer.set_colony_state(world.colony_state)
+	_prepare_planet_lander_landing()
 	if world.terrain_layer != null:
 		world.terrain_layer.visible = false
 	if world.road_layer != null:
 		world.road_layer.visible = false
 	if world.building_layer != null:
-		world.building_layer.set_hidden_building_types(["hq"])
+		world.building_layer.set_hidden_building_types(["hq", "planet_lander_module"])
 	if world.grid_layer != null:
 		world.grid_layer.visible = false
 
@@ -1140,6 +1150,7 @@ func _regenerate_current_world() -> void:
 		return
 	_apply_sandbox_settings_to_world()
 	_place_initial_camera(true)
+	_start_planet_lander_landing()
 	_on_world_tile_changed(world.selected_tile, "Ready")
 	_sync_resource_bar()
 
@@ -1482,6 +1493,34 @@ func _on_world_buildings_changed() -> void:
 	_sync_building_3d_preview()
 
 
+func _prepare_planet_lander_landing() -> void:
+	if planet_lander_landing == null or world == null or world.colony_state == null:
+		return
+	var lander: Dictionary = world.colony_state.get_nearest_building_of_type("planet_lander_module", world.map_data.start_tile)
+	if lander.is_empty():
+		return
+	var origin: Vector2i = lander.get("origin", world.map_data.start_tile)
+	var footprint: Vector2i = lander.get("footprint", Vector2i.ONE)
+	var center := Vector2(
+		float(origin.x) + (float(footprint.x) - 1.0) * 0.5,
+		float(origin.y) + (float(footprint.y) - 1.0) * 0.5
+	)
+	planet_lander_landing.prepare_landing(center)
+
+
+func _start_planet_lander_landing() -> void:
+	if planet_lander_landing == null:
+		return
+	if not planet_lander_landing.start_landing() and world != null:
+		world.complete_starting_lander_landing()
+
+
+func _on_planet_lander_landed() -> void:
+	if world == null:
+		return
+	world.complete_starting_lander_landing()
+
+
 func _on_colony_changed(summary_lines: Array[String]) -> void:
 	if colony_label == null:
 		return
@@ -1513,8 +1552,6 @@ func _sync_construction_button_state() -> void:
 		milling_plant_button.disabled = not world.colony_state.can_afford_building("milling_plant")
 	if living_quarters_button != null:
 		living_quarters_button.disabled = not world.colony_state.can_afford_building("living_quarters")
-	if hq_button != null:
-		hq_button.disabled = not world.colony_state.can_afford_building("hq")
 
 
 func _on_building_selection_changed(_building: Dictionary) -> void:

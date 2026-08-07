@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dpksy1wr45egi"
-path="res://.godot/imported/texture_diffuse.png-b54b698b70f50eee50c292d940cc71ed.ctex"
+path="res://.godot/imported/texture_diffuse.png-3fc43a82583b369c9fd00c64f573813d.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/3D/buildings/plant_lander_module_landed/texture_diffuse.png"
-dest_files=["res://.godot/imported/texture_diffuse.png-b54b698b70f50eee50c292d940cc71ed.ctex"]
+source_file="res://assets/3D/buildings/planet_lander_module_landed/texture_diffuse.png"
+dest_files=["res://.godot/imported/texture_diffuse.png-3fc43a82583b369c9fd00c64f573813d.ctex"]
 
 [params]
 

@@ -2,9 +2,9 @@
 
 Sandbox mode is the first real play mode. It should start empty apart from procedurally generated terrain and let the player establish a functional outpost by placing structures on top of the terrain layer.
 
-On planetfall, Sharon from mission control contacts the player. The first pressure is oxygen: reserve oxygen lasts only a few days, so the player must build an `oxygen_extractor` before expanding.
+As the Planet Lander descends, Sharon from mission control contacts the player. The first pressure after touchdown is oxygen: reserve oxygen lasts only a few days, so the player must build an `oxygen_extractor` before expanding.
 
-The player starts with one preplaced `hq` centered on the map and 225 metal stored in that HQ. Construction and vehicle production spend from HQ metal. Roads are free.
+The player starts with one descending `planet_lander_module` centered on the map. Its 3x3 site blocks placement and navigation immediately, but it remains non-operational during the six-second descent. Touchdown swaps the flying model for the landed model, activates 950 stored metal, and enables construction, vehicle production, and Hauler deliveries. Roads are free.
 
 ## Layer Model
 
@@ -24,9 +24,9 @@ Moving units or changing roles must not invalidate terrain. A layer is redrawn o
 - `living_quarters`: houses people. MVP starts with 5 people; quarters establish the housing concept.
 - `machine_park`: provides digger vehicle/operator slots. Current MVP grants 2 digger operator slots.
 - `milling_plant`: receives future digger yields and processes them into usable resources.
-- `hq`: central colony delivery point for processed metal. Sandbox starts with one HQ already placed in the middle of the map.
+- `planet_lander_module`: non-placeable colony command center and processed-metal delivery point. Sandbox starts with one descending into the middle of the map; it becomes operational at touchdown.
 
-Buildings occupy map footprints but do not rewrite terrain data. Placement currently requires map bounds, low/clear terrain, no roads, no existing building footprint overlap, and enough HQ metal for the building cost.
+Buildings occupy map footprints but do not rewrite terrain data. Placement currently requires map bounds, low/clear terrain, no roads, no existing building footprint overlap, and enough metal stored in the operational Planet Lander for the building cost.
 
 Building object metadata is documented in [Building Object Config](building-object-config.md). The MVP supports active building orientation with `R`, sprite source rects from `assets/objects/buildings.png`, per-building anchor offsets, and vehicle entry/approach tiles for future logistics.
 
@@ -66,9 +66,9 @@ The first production chain is anchored by `milling_plant` and `machine_park`:
 - The drilling machine travels to the nearest passable tile beside the mountain, mines for 5.5 seconds, returns raw material to the nearest `milling_plant`, spends 2 seconds dumping, then repeats the same mining route.
 - The milling plant processes raw material into metal over time.
 - Select a `hauler` and right-click a `milling_plant`.
-- The hauler travels to the Milling Plant, waits there if no metal is available, spends 2 seconds loading 20 metal, switches to its full-cargo sprite, delivers that load to the nearest HQ, spends 2 seconds unloading, then repeats the route.
+- The hauler travels to the Milling Plant, waits there if no metal is available, spends 2 seconds loading 20 metal, switches to its full-cargo model, delivers that load to the operational Planet Lander, spends 2 seconds unloading, then repeats the route.
 
-Vehicles currently use the shared unit selection and pathfinding pipeline. The global metal resource still updates when a Milling Plant processes raw material; spendable metal is the amount stored in HQ.
+Vehicles currently use the shared unit selection and pathfinding pipeline. The global metal resource still updates when a Milling Plant processes raw material; spendable metal is the amount stored in the operational Planet Lander.
 
 ## Unit Sprites
 

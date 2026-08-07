@@ -68,6 +68,8 @@ func _rebuild(reason: String) -> void:
 
 
 func _add_model_instance(building: Dictionary) -> bool:
+	if building.get("landing_state", "landed") != "landed":
+		return false
 	var building_type: String = building.get("type", "")
 	var model_config: Dictionary = building_catalog.get_model_config(building_type)
 	if model_config.is_empty():

@@ -233,8 +233,8 @@ func _initialize() -> void:
 		push_error("IsoWorld did not create BuildingLayer.")
 		quit(1)
 		return
-	if not building_layer.hidden_building_types.has("hq"):
-		push_error("2D BuildingLayer should hide HQ while the 3D HQ model renderer is active.")
+	if not building_layer.hidden_building_types.has("planet_lander_module"):
+		push_error("2D BuildingLayer should hide the Planet Lander while its 3D renderer is active.")
 		quit(1)
 		return
 	if building_layer.atlas == null:
@@ -297,16 +297,12 @@ func _initialize() -> void:
 		push_error("Machine Park should mirror its single-source sprite for vertical orientation.")
 		quit(1)
 		return
-	if world.building_catalog.get_footprint("hq", "horizontal") != Vector2i(3, 3):
-		push_error("HQ should use the configured 3x3 footprint.")
+	if world.building_catalog.get_footprint("planet_lander_module", "horizontal") != Vector2i(3, 3):
+		push_error("Planet Lander should use the configured 3x3 footprint.")
 		quit(1)
 		return
-	if world.building_catalog.get_sprite_source_rect("hq", "horizontal").size == Vector2i.ZERO:
-		push_error("HQ should have an atlas sprite source rect.")
-		quit(1)
-		return
-	if world.building_catalog.get_model_config("hq").get("mesh_path", "") != "res://assets/3D/buildings/hq/base.obj":
-		push_error("HQ should be configured with the 3D OBJ model asset.")
+	if world.building_catalog.get_model_config("planet_lander_module").get("mesh_path", "") != "res://assets/3D/buildings/planet_lander_module_landed/base.obj":
+		push_error("Planet Lander should use the landed OBJ model after touchdown.")
 		quit(1)
 		return
 
@@ -514,8 +510,8 @@ func _initialize() -> void:
 		quit(1)
 		return
 
-	if not root.objective_label.text.contains("Oxygen Extractor"):
-		push_error("Initial sandbox objective should ask for an Oxygen Extractor.")
+	if not root.objective_label.text.contains("Planet Lander"):
+		push_error("Initial sandbox objective should wait for the Planet Lander touchdown.")
 		quit(1)
 		return
 
@@ -524,50 +520,95 @@ func _initialize() -> void:
 		quit(1)
 		return
 	if root.resource_bar_panel == null or root.hq_metal_value_label == null:
-		push_error("Game HUD should include a top-center HQ metal resource bar.")
+		push_error("Game HUD should include a top-center command-module metal resource bar.")
 		quit(1)
 		return
-	if root.hq_metal_value_label.text != "950":
-		push_error("HQ metal HUD should start with the initial HQ metal reserve.")
+	if root.hq_metal_value_label.text != "0":
+		push_error("Planet Lander metal should remain unavailable during descent.")
 		quit(1)
 		return
-	if world.colony_state.get_building_count("hq") != 1:
-		push_error("Sandbox should start with one preplaced HQ.")
+	if world.colony_state.get_building_count("hq") != 0 or world.colony_state.get_building_count("planet_lander_module") != 1:
+		push_error("Sandbox should replace the starting HQ with one reserved Planet Lander.")
 		quit(1)
 		return
-	var hq_models: Array[MeshInstance3D] = []
-	for child in building_3d_layer.get_children():
-		if child is MeshInstance3D and String(child.name).begins_with("Building3D_hq_"):
-			hq_models.append(child)
-	if hq_models.size() != 1:
-		push_error("Starting HQ should be rendered as one 3D building model instance; found %d." % hq_models.size())
+	var starting_lander: Dictionary = world.colony_state.get_nearest_building_of_type("planet_lander_module", world.map_data.start_tile)
+	if starting_lander.get("origin", Vector2i.ZERO) != world.map_data.start_tile - Vector2i(1, 1):
+		push_error("Starting Planet Lander should be centered on the middle of the map.")
 		quit(1)
 		return
-	var hq_model := hq_models[0]
-	if hq_model == null or hq_model.mesh == null:
-		push_error("3D HQ model instance should have a loaded mesh.")
-		quit(1)
-		return
-	if hq_model.material_override == null:
-		push_error("3D HQ model instance should have a texture material override.")
-		quit(1)
-		return
-	var hq_material := hq_model.material_override as StandardMaterial3D
-	if hq_material == null or not hq_material.normal_enabled or hq_material.normal_texture == null:
-		push_error("3D HQ material should use the configured normal texture so sunlight creates surface detail.")
-		quit(1)
-		return
-	if hq_material.roughness_texture == null or hq_material.metallic_texture == null:
-		push_error("3D HQ material should use configured roughness and metallic textures.")
-		quit(1)
-		return
-	var starting_hq: Dictionary = world.colony_state.get_nearest_building_of_type("hq", world.map_data.start_tile)
-	if starting_hq.get("origin", Vector2i.ZERO) != world.map_data.start_tile - Vector2i(1, 1):
-		push_error("Starting HQ should be centered on the middle of the map.")
+	if starting_lander.get("operational", true) or starting_lander.get("landing_state", "") != "descending":
+		push_error("Planet Lander should be non-operational while its flying model descends.")
 		quit(1)
 		return
 	if world.pathfinding_grid.is_tile_passable(world.map_data.start_tile):
-		push_error("Starting HQ footprint should block pathfinding at the map center.")
+		push_error("Reserved Planet Lander footprint should block pathfinding during descent.")
+		quit(1)
+		return
+	if root.planet_lander_landing == null or not root.planet_lander_landing.is_landing():
+		push_error("Sandbox should start the Planet Lander descent sequence.")
+		quit(1)
+		return
+	var flying_model := root.planet_lander_landing.get_node_or_null("PlanetLanderFlyingModel") as MeshInstance3D
+	if flying_model == null or flying_model.mesh == null or flying_model.material_override == null:
+		push_error("Planet Lander descent should render the textured flying OBJ model.")
+		quit(1)
+		return
+	var landing_jet_count := 0
+	for child in root.planet_lander_landing.get_children():
+		if child is GPUParticles3D and String(child.name).begins_with("LandingJet"):
+			landing_jet_count += 1
+	if landing_jet_count != 6:
+		push_error("Planet Lander descent should use six animated landing jets; found %d." % landing_jet_count)
+		quit(1)
+		return
+	for child in building_3d_layer.get_children():
+		if child is MeshInstance3D and String(child.name).begins_with("Building3D_planet_lander_module_"):
+			push_error("Landed Planet Lander model should remain hidden during descent.")
+			quit(1)
+			return
+
+	root.planet_lander_landing.finish_landing_immediately()
+	if root.planet_lander_landing.is_landing():
+		push_error("Planet Lander sequence should stop after touchdown.")
+		quit(1)
+		return
+	starting_lander = world.colony_state.get_nearest_building_of_type("planet_lander_module", world.map_data.start_tile)
+	if not starting_lander.get("operational", false) or starting_lander.get("landing_state", "") != "landed":
+		push_error("Planet Lander should become operational at touchdown.")
+		quit(1)
+		return
+	if world.colony_state.get_hq_stored_metal() != 950 or root.hq_metal_value_label.text != "950":
+		push_error("Planet Lander should activate the initial 950-metal reserve at touchdown.")
+		quit(1)
+		return
+	if not root.objective_label.text.contains("Oxygen Extractor"):
+		push_error("Objective should advance to Oxygen Extractor construction after touchdown.")
+		quit(1)
+		return
+	var lander_models: Array[MeshInstance3D] = []
+	for child in building_3d_layer.get_children():
+		if child is MeshInstance3D and String(child.name).begins_with("Building3D_planet_lander_module_"):
+			lander_models.append(child)
+	if lander_models.size() != 1:
+		push_error("Touchdown should swap to one landed Planet Lander model; found %d." % lander_models.size())
+		quit(1)
+		return
+	var lander_model := lander_models[0]
+	if lander_model == null or lander_model.mesh == null:
+		push_error("Landed Planet Lander model should have a loaded mesh.")
+		quit(1)
+		return
+	if lander_model.material_override == null:
+		push_error("Landed Planet Lander should have a texture material override.")
+		quit(1)
+		return
+	var lander_material := lander_model.material_override as StandardMaterial3D
+	if lander_material == null or not lander_material.normal_enabled or lander_material.normal_texture == null:
+		push_error("Planet Lander material should use its configured normal texture.")
+		quit(1)
+		return
+	if lander_material.roughness_texture == null or lander_material.metallic_texture == null:
+		push_error("Planet Lander material should use configured roughness and metallic textures.")
 		quit(1)
 		return
 
@@ -592,7 +633,7 @@ func _initialize() -> void:
 		return
 
 	if _count_roads(world.map_data) != 1:
-		push_error("Sandbox start should only include the HQ vehicle approach road, not demo roads.")
+		push_error("Sandbox start should only include the Planet Lander vehicle approach road, not demo roads.")
 		quit(1)
 		return
 
@@ -1054,7 +1095,7 @@ func _initialize() -> void:
 		quit(1)
 		return
 
-	var hq_building: Dictionary = world.colony_state.get_nearest_building_of_type("hq", world.map_data.start_tile)
+	var hq_building: Dictionary = world.colony_state.get_nearest_building_of_type("planet_lander_module", world.map_data.start_tile)
 	if not world.unit_state.select_unit_by_id(hauler_id):
 		push_error("The produced Hauler should remain selectable by id.")
 		quit(1)
@@ -1094,16 +1135,16 @@ func _initialize() -> void:
 		return
 	hq_building = world.colony_state.get_building_by_id(int(hq_building["id"]))
 	if int(hq_building.get("stored_metal", 0)) < 20:
-		push_error("Hauler should wait for metal, load 20 metal, deliver it to HQ, and continue its route.")
+		push_error("Hauler should wait for metal, load 20 metal, deliver it to the Planet Lander, and continue its route.")
 		quit(1)
 		return
 	if int(root.hq_metal_value_label.text) < 20:
-		push_error("Top-center HQ metal HUD should update after a Hauler delivery.")
+		push_error("Top-center command-module metal HUD should update after a Hauler delivery.")
 		quit(1)
 		return
 	hauler_unit = world.unit_state.get_unit_by_id(hauler_id)
 	if hauler_unit.get("order", "") == "idle":
-		push_error("Hauler should keep repeating the Milling Plant to HQ transport route after unloading.")
+		push_error("Hauler should keep repeating the Milling Plant to Planet Lander transport route after unloading.")
 		quit(1)
 		return
 	if overlay_layer._should_draw_selected_marker():

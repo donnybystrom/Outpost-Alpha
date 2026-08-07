@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c8y3ibti3f5tb"
-path="res://.godot/imported/texture_normal.png-1240ec2855afa405ced38c3e97a32233.ctex"
+uid="uid://dfqx4lgq5sy03"
+path="res://.godot/imported/texture_metallic.png-272fdceb9a5315accf50c4b6e0927a01.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/3D/buildings/plant_lander_module_flying/texture_normal.png"
-dest_files=["res://.godot/imported/texture_normal.png-1240ec2855afa405ced38c3e97a32233.ctex"]
+source_file="res://assets/3D/buildings/planet_lander_module_landed/texture_metallic.png"
+dest_files=["res://.godot/imported/texture_metallic.png-272fdceb9a5315accf50c4b6e0927a01.ctex"]
 
 [params]
 

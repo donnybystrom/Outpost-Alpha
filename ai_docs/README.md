@@ -17,6 +17,7 @@ Minimal Godot 4.7 / GDScript prototype for an isometric 2D RTS foundation.
 - Hover and click tile selection.
 - Procedural placeholder roads, structures, and vehicles in Dev Mode only.
 - Procedural ore, crystal growth, geothermal vents, and alien forest.
+- Sandbox opening with a descending Planet Lander, six procedural landing jets, and a flying-to-landed model transition.
 
 ## Controls
 
@@ -58,6 +59,8 @@ T d:1 r:2 c:9216 us:4200 set_map_data
 `d` is total `_draw()` calls, `r` is total redraw requests, `c` is cells processed by the last draw, and `us` is microseconds spent inside the last `_draw()`. `bake` is the most recent cached-texture rebuild or dirty-update time. During normal hover, `terrain`, `roads`, and `grid` should not increase their redraw counts; only `overlay` should. During a single road placement, `roads` should process at most five cells: the placed tile plus north/east/south/west neighbors.
 
 The sandbox start map is generated with a random seed when `Sandbox` is selected. It creates a 96x96 map with a player clearing, a buildable radius between 25 and 40 tiles by default, sporadically open alien forest outside the clearing, resource pockets beyond the build area, and three carved clear paths from the player clearing to the map edge. Sandbox starts without prebuilt roads or demo objects.
+
+The center of the clearing is reserved for the Planet Lander at sandbox start. Its flying model descends from above the map with six realtime particle jets. The reserved footprint blocks building placement and pathfinding during descent, but its initial metal and hauler delivery endpoint remain unavailable until touchdown. At touchdown the renderer swaps to the landed model and the module becomes the colony's operational command center and metal store, replacing the former starting HQ.
 
 The hidden admin panel has a `World` category for the current procedural controls: `Paths`, `Path width`, `Clear noise`, `Build min`, and `Build max`. `Clear noise` controls how far the start clearing may deviate from the guaranteed minimum radius toward the maximum radius: `0` is a near-perfect circle at `Build min`, while `100` uses the full `Build min` to `Build max` range for an irregular edge.
 
