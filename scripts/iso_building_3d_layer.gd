@@ -35,6 +35,19 @@ func refresh_buildings(reason: String) -> void:
 	_rebuild(reason)
 
 
+func has_warm_model(building_type: String) -> bool:
+	return mesh_by_type.has(building_type) and material_by_type.has(building_type)
+
+
+func warm_model(building_type: String) -> bool:
+	if building_catalog == null:
+		return false
+	var model_config: Dictionary = building_catalog.get_model_config(building_type)
+	if model_config.is_empty():
+		return true
+	return _mesh_for_building(building_type, model_config) != null and _material_for_building(building_type, model_config) != null
+
+
 func get_diagnostics() -> Dictionary:
 	return {
 		"draw_calls": 0,

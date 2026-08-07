@@ -21,8 +21,8 @@ const HUD_MARGIN := 16.0
 const UI_FONT_SIZE := 18
 const UI_SMALL_FONT_SIZE := 16
 const START_CAMERA_ZOOM := 2.0
-const DEFAULT_TREE_DENSITY_PERCENT := 64
-const DEFAULT_TREE_SIZE_PERCENT := 100
+const DEFAULT_TREE_DENSITY_PERCENT := 100
+const DEFAULT_TREE_SIZE_PERCENT := 130
 const RUNTIME_CONFIG_PATH := "res://config/runtime.cfg"
 const START_SCREEN_BACKGROUND_PATH := "res://assets/start_screen_background.png"
 const INTRO_MUSIC_PATH := "res://assets/audio/music/intro_dystopian_nightmare.mp3"
@@ -33,6 +33,7 @@ const SUN_LIGHT_COLOR := Color8(255, 242, 216)
 const SUN_LIGHT_ENERGY := 1.12
 const AMBIENT_LIGHT_COLOR := Color8(64, 72, 67)
 const AMBIENT_LIGHT_ENERGY := 0.56
+const MODEL_RESOURCE_KEYS: Array[String] = ["mesh_path", "diffuse_texture", "normal_texture", "roughness_texture", "metallic_texture"]
 
 enum AppState { MAIN_MENU, SANDBOX_SETUP, IN_GAME }
 
@@ -91,6 +92,8 @@ var living_quarters_button: Button
 var machine_park_button: Button
 var milling_plant_button: Button
 var tool_buttons: Array[Button] = []
+var _pending_build_tool := ""
+var _building_asset_warmups := {}
 var paths_spin_box: SpinBox
 var path_width_spin_box: SpinBox
 var clearing_noise_spin_box: SpinBox
@@ -464,11 +467,11 @@ func _build_sandbox_setup() -> void:
 	tabs.add_child(world_tab)
 
 	paths_spin_box = _add_admin_spin_box(world_tab, "Paths", 1, 12, 3)
-	path_width_spin_box = _add_admin_spin_box(world_tab, "Path width", 1, 16, 8)
-	clearing_noise_spin_box = _add_admin_spin_box(world_tab, "Clear noise", 0, 100, 45)
-	mountain_percent_spin_box = _add_admin_spin_box(world_tab, "Mountain wilderness %", 0, 100, 67)
-	min_build_spin_box = _add_admin_spin_box(world_tab, "Build min", 4, 46, 25)
-	max_build_spin_box = _add_admin_spin_box(world_tab, "Build max", 4, 47, 40)
+	path_width_spin_box = _add_admin_spin_box(world_tab, "Path width", 1, 16, 5)
+	clearing_noise_spin_box = _add_admin_spin_box(world_tab, "Clear noise", 0, 100, 70)
+	mountain_percent_spin_box = _add_admin_spin_box(world_tab, "Mountain wilderness %", 0, 100, 75)
+	min_build_spin_box = _add_admin_spin_box(world_tab, "Build min", 4, 46, 5)
+	max_build_spin_box = _add_admin_spin_box(world_tab, "Build max", 4, 47, 10)
 
 	var visuals_tab: VBoxContainer = VBoxContainer.new()
 	visuals_tab.name = "Visuals"
@@ -836,6 +839,10 @@ func _add_tool_button(parent: HBoxContainer, label_text: String, tool_id: String
 	button.set_meta("tool_id", tool_id)
 	button.custom_minimum_size = Vector2(92, 32)
 	button.pressed.connect(_select_build_tool.bind(tool_id))
+	if tool_id.begins_with("building:"):
+		var building_type := tool_id.trim_prefix("building:")
+		button.mouse_entered.connect(_request_building_tool_warmup.bind(building_type))
+		button.focus_entered.connect(_request_building_tool_warmup.bind(building_type))
 	parent.add_child(button)
 	tool_buttons.append(button)
 	return button
@@ -1008,11 +1015,16 @@ func _ensure_world() -> void:
 	building_preview_3d_layer.name = "BuildingPreview3DLayer"
 	add_child(building_preview_3d_layer)
 	building_preview_3d_layer.set_building_catalog(world.building_catalog)
+	_set_loading_progress(80.0, "Preloading Planet Lander touchdown...")
+	await _warm_building_assets("planet_lander_module")
 
 	unit_3d_layer = IsoUnit3DLayer.new()
 	unit_3d_layer.name = "Unit3DLayer"
 	add_child(unit_3d_layer)
 	unit_3d_layer.set_unit_state(world.unit_state)
+	_set_loading_progress(84.0, "Preparing Planet Lander crew...")
+	await get_tree().process_frame
+	unit_3d_layer.warm_space_marine()
 	_set_loading_progress(86.0, "Calibrating orbital camera...")
 	await get_tree().process_frame
 
@@ -1181,9 +1193,69 @@ func _is_admin_toggle_key(event: InputEventKey) -> bool:
 
 
 func _select_build_tool(tool_id: String) -> void:
+	if tool_id.begins_with("building:"):
+		var building_type := tool_id.trim_prefix("building:")
+		if not _building_assets_are_warm(building_type):
+			_pending_build_tool = tool_id
+			_select_build_tool_after_warmup(tool_id, building_type)
+			return
+	_activate_build_tool(tool_id)
+
+
+func _select_build_tool_after_warmup(tool_id: String, building_type: String) -> void:
+	await _warm_building_assets(building_type)
+	if _pending_build_tool == tool_id:
+		_activate_build_tool(tool_id)
+
+
+func _activate_build_tool(tool_id: String) -> void:
+	_pending_build_tool = ""
 	if world != null:
 		world.set_paint_tool(tool_id)
 	_sync_tool_buttons(tool_id)
+
+
+func _request_building_tool_warmup(building_type: String) -> void:
+	await _warm_building_assets(building_type)
+
+
+func _building_assets_are_warm(building_type: String) -> bool:
+	return building_3d_layer != null and building_preview_3d_layer != null and building_3d_layer.has_warm_model(building_type) and building_preview_3d_layer.has_warm_model(building_type)
+
+
+func _warm_building_assets(building_type: String) -> bool:
+	if _building_assets_are_warm(building_type):
+		return true
+	while _building_asset_warmups.get(building_type, false):
+		await get_tree().process_frame
+		if _building_assets_are_warm(building_type):
+			return true
+	if world == null or building_3d_layer == null or building_preview_3d_layer == null:
+		return false
+	var model_config: Dictionary = world.building_catalog.get_model_config(building_type)
+	if model_config.is_empty():
+		return true
+	_building_asset_warmups[building_type] = true
+	var resource_paths: Array[String] = []
+	for key in MODEL_RESOURCE_KEYS:
+		var path: String = model_config.get(key, "")
+		if path.is_empty() or resource_paths.has(path):
+			continue
+		resource_paths.append(path)
+		if not ResourceLoader.has_cached(path):
+			ResourceLoader.load_threaded_request(path)
+	for path in resource_paths:
+		if ResourceLoader.has_cached(path):
+			continue
+		var status := ResourceLoader.load_threaded_get_status(path)
+		while status == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+			await get_tree().process_frame
+			status = ResourceLoader.load_threaded_get_status(path)
+		if status == ResourceLoader.THREAD_LOAD_LOADED:
+			ResourceLoader.load_threaded_get(path)
+	var warmed := building_3d_layer.warm_model(building_type) and building_preview_3d_layer.warm_model(building_type)
+	_building_asset_warmups.erase(building_type)
+	return warmed
 
 
 func _sync_tool_buttons(tool_id: String) -> void:
@@ -1518,7 +1590,8 @@ func _start_planet_lander_landing() -> void:
 func _on_planet_lander_landed() -> void:
 	if world == null:
 		return
-	world.complete_starting_lander_landing()
+	if world.complete_starting_lander_landing():
+		_sync_unit_3d_layer()
 
 
 func _on_colony_changed(summary_lines: Array[String]) -> void:

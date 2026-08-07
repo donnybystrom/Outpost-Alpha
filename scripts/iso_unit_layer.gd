@@ -5,6 +5,7 @@ const HALF_TILE := Vector2(TILE_SIZE.x / 2.0, TILE_SIZE.y / 2.0)
 const UNIT_ATLAS_PATH := "res://assets/objects/units.png"
 const ROLE_DRILLING_MACHINE := "drilling_machine"
 const ROLE_HAULER := "hauler"
+const ROLE_SPACE_MARINE := "space_marine"
 const FACING_SOUTH_EAST := "south_east"
 const FACING_NORTH_EAST := "north_east"
 const FACING_SOUTH_WEST := "south_west"
@@ -75,6 +76,11 @@ func _draw_worker(worker: Dictionary) -> void:
 	var position: Vector2 = worker["position"]
 	var origin := map_position_to_screen(position) + _worker_visual_offset(worker)
 	var role: String = worker.get("role", "worker")
+	if role == ROLE_SPACE_MARINE:
+		if unit_state != null and unit_state.is_selected(int(worker["id"])):
+			_draw_unit_selection_box(Rect2(origin + Vector2(-10, -19), Vector2(20, 24)))
+		last_cells_processed += 1
+		return
 	if role == ROLE_HAULER or role == ROLE_DRILLING_MACHINE:
 		_draw_vehicle_status(origin, worker)
 		if unit_state != null and unit_state.is_selected(int(worker["id"])):

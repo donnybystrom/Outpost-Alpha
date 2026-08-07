@@ -42,6 +42,23 @@ func clear_preview() -> void:
 	_clear_footprint()
 
 
+func has_warm_model(building_type: String) -> bool:
+	return mesh_by_type.has(building_type) and material_by_key.has("%s:true" % building_type) and material_by_key.has("%s:false" % building_type)
+
+
+func warm_model(building_type: String) -> bool:
+	if building_catalog == null:
+		return false
+	var model_config: Dictionary = building_catalog.get_model_config(building_type)
+	if model_config.is_empty():
+		return true
+	if _mesh_for_building(building_type, model_config) == null:
+		return false
+	_preview_material_for_building(building_type, model_config, true)
+	_preview_material_for_building(building_type, model_config, false)
+	return true
+
+
 func set_preview(building_type: String, origin: Vector2i, orientation: String, valid: bool, placement_feedback: Array[Dictionary] = []) -> void:
 	if building_catalog == null or building_type.is_empty():
 		clear_preview()

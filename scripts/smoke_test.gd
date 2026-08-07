@@ -156,6 +156,10 @@ func _initialize() -> void:
 		push_error("Main scene should create BuildingPreview3DLayer for 3D placement previews.")
 		quit(1)
 		return
+	if not building_3d_layer.has_warm_model("planet_lander_module") or not building_preview_3d_layer.has_warm_model("planet_lander_module"):
+		push_error("Landed Planet Lander assets should be warm before the descent starts.")
+		quit(1)
+		return
 	if root.camera_3d == null:
 		push_error("Main scene should create an orthographic Camera3D for the 3D ground renderer.")
 		quit(1)
@@ -314,6 +318,10 @@ func _initialize() -> void:
 	var unit_3d_layer := root.get_node_or_null("Unit3DLayer")
 	if unit_3d_layer == null:
 		push_error("Main scene should create Unit3DLayer for model-backed units.")
+		quit(1)
+		return
+	if not unit_3d_layer.scene_by_variant.has("space_marine") or not unit_3d_layer.material_by_variant.has("space_marine"):
+		push_error("Space Marine scene and base PBR material should be warm before Planet Lander touchdown.")
 		quit(1)
 		return
 	if unit_layer.unit_atlas == null:
@@ -548,6 +556,16 @@ func _initialize() -> void:
 		push_error("Sandbox should start the Planet Lander descent sequence.")
 		quit(1)
 		return
+	if root.planet_lander_landing._engine_audio_player == null or not root.planet_lander_landing._engine_audio_player.playing or root.planet_lander_landing._engine_audio_playback == null:
+		push_error("Planet Lander descent should start its procedural approach-engine audio.")
+		quit(1)
+		return
+	var touchdown_audio := root.planet_lander_landing._touchdown_audio_player.stream as AudioStreamWAV
+	var expected_touchdown_audio_bytes := ceili(root.planet_lander_landing.AUDIO_MIX_RATE * root.planet_lander_landing.TOUCHDOWN_AUDIO_DURATION) * 4
+	if touchdown_audio == null or touchdown_audio.data.size() != expected_touchdown_audio_bytes:
+		push_error("Planet Lander should prepare a generated pneumatic touchdown sound.")
+		quit(1)
+		return
 	var flying_model := root.planet_lander_landing.get_node_or_null("PlanetLanderFlyingModel") as MeshInstance3D
 	if flying_model == null or flying_model.mesh == null or flying_model.material_override == null:
 		push_error("Planet Lander descent should render the textured flying OBJ model.")
@@ -567,9 +585,13 @@ func _initialize() -> void:
 			quit(1)
 			return
 
-	root.planet_lander_landing.finish_landing_immediately()
+	root.planet_lander_landing._process(root.planet_lander_landing.LANDING_DURATION)
 	if root.planet_lander_landing.is_landing():
 		push_error("Planet Lander sequence should stop after touchdown.")
+		quit(1)
+		return
+	if root.planet_lander_landing._engine_audio_player.playing or not root.planet_lander_landing._touchdown_audio_player.playing:
+		push_error("Touchdown should stop the engine loop and play the thud/pressure-release sound.")
 		quit(1)
 		return
 	starting_lander = world.colony_state.get_nearest_building_of_type("planet_lander_module", world.map_data.start_tile)
@@ -611,6 +633,38 @@ func _initialize() -> void:
 		push_error("Planet Lander material should use configured roughness and metallic textures.")
 		quit(1)
 		return
+	var space_marines: Array[Dictionary] = []
+	for unit in world.unit_state.workers:
+		if unit.get("role", "") == "space_marine":
+			space_marines.append(unit)
+	if space_marines.size() != 3:
+		push_error("Planet Lander touchdown should deploy three Space Marines; found %d." % space_marines.size())
+		quit(1)
+		return
+	for marine in space_marines:
+		var marine_id := int(marine["id"])
+		if not unit_3d_layer.instance_by_unit_id.has(marine_id) or unit_3d_layer.variant_by_unit_id.get(marine_id, "") != "space_marine":
+			push_error("Each deployed Space Marine should have a rigged 3D scene instance.")
+			quit(1)
+			return
+	var marine_material := unit_3d_layer.material_by_variant["space_marine"] as StandardMaterial3D
+	if marine_material == null or marine_material.albedo_texture == null or marine_material.normal_texture == null or marine_material.roughness_texture == null or marine_material.metallic_texture == null:
+		push_error("Space Marine rig should reuse the base model PBR texture set.")
+		quit(1)
+		return
+	var animated_marine: Dictionary = space_marines[0]
+	animated_marine["speed"] = 1.0
+	_set_unit_by_id(world.unit_state, int(animated_marine["id"]), animated_marine)
+	unit_3d_layer.sync_units("space_marine_animation_test")
+	var marine_instance := unit_3d_layer.instance_by_unit_id[int(animated_marine["id"])] as Node3D
+	var marine_animation_player := unit_3d_layer._find_animation_player(marine_instance) as AnimationPlayer
+	if marine_animation_player == null or not marine_animation_player.is_playing() or marine_animation_player.current_animation != unit_3d_layer.SPACE_MARINE_RUN_ANIMATION:
+		push_error("Moving Space Marines should loop the Meshy Run_03 animation.")
+		quit(1)
+		return
+	animated_marine["speed"] = 0.0
+	_set_unit_by_id(world.unit_state, int(animated_marine["id"]), animated_marine)
+	unit_3d_layer.sync_units("space_marine_idle_test")
 
 	var background_fill := root.get_node("Background/ViewportFill") as Control
 	if background_fill.mouse_filter != Control.MOUSE_FILTER_IGNORE:
@@ -834,6 +888,7 @@ func _initialize() -> void:
 
 	var oxygen_tile: Vector2i = _find_buildable_tile(world, "oxygen_extractor")
 	var hq_metal_before_oxygen: int = world.colony_state.get_hq_stored_metal()
+	await root._warm_building_assets("oxygen_extractor")
 	root._select_build_tool("building:oxygen_extractor")
 	world.rotate_active_building()
 	if world.building_orientation != "vertical":
@@ -919,6 +974,7 @@ func _initialize() -> void:
 
 	var machine_tile: Vector2i = _find_buildable_tile(world, "machine_park")
 	var hq_metal_before_machine: int = world.colony_state.get_hq_stored_metal()
+	await root._warm_building_assets("machine_park")
 	root._select_build_tool("building:machine_park")
 	world.paint_tile(machine_tile)
 	if world.colony_state.get_digger_capacity() != 2:
@@ -940,6 +996,7 @@ func _initialize() -> void:
 
 	var milling_tile: Vector2i = _find_buildable_tile(world, "milling_plant")
 	var hq_metal_before_milling: int = world.colony_state.get_hq_stored_metal()
+	await root._warm_building_assets("milling_plant")
 	root._select_build_tool("building:milling_plant")
 	world.paint_tile(milling_tile)
 	if world.colony_state.get_building_count("milling_plant") != 1:
@@ -1194,7 +1251,7 @@ func _initialize() -> void:
 		push_error("Unit overlays should use the active Camera3D projection after viewport rotation.")
 		quit(1)
 		return
-	var click_unit: Dictionary = world.unit_state.workers[0]
+	var click_unit: Dictionary = world.unit_state.get_unit_by_id(hauler_id)
 	var click_unit_viewport_position: Vector2 = input_controller.map_position_to_viewport(click_unit["position"])
 	input_controller.primary_press_at_viewport(click_unit_viewport_position, false)
 	input_controller.primary_release_at_viewport(click_unit_viewport_position)

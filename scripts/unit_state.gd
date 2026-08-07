@@ -3,6 +3,7 @@ extends RefCounted
 const WORKER_ROLE := "worker"
 const DRILLING_MACHINE_ROLE := "drilling_machine"
 const HAULER_ROLE := "hauler"
+const SPACE_MARINE_ROLE := "space_marine"
 const WORKER_SPEED_TILES_PER_SECOND := 3.0
 const VEHICLE_SPEED_TILES_PER_SECOND := 2.4
 const ROAD_SPEED_MULTIPLIER := 1.3
@@ -118,6 +119,36 @@ func add_vehicle(vehicle_type: String, tile: Vector2i) -> Dictionary:
 	_next_unit_id += 1
 	selected_unit_ids.clear()
 	selected_unit_ids[int(unit["id"])] = true
+	return unit
+
+
+func add_space_marine(tile: Vector2i) -> Dictionary:
+	var unit := {
+		"id": _next_unit_id,
+		"role": SPACE_MARINE_ROLE,
+		"position": Vector2(tile),
+		"tile": tile,
+		"target_tile": tile,
+		"path": [],
+		"path_index": 0,
+		"path_origin": Vector2(tile),
+		"visual_offset": Vector2.ZERO,
+		"heading": 0.0,
+		"speed": 0.0,
+		"velocity": Vector2.ZERO,
+		"collision_radius": WORKER_COLLISION_RADIUS,
+		"stuck_time": 0.0,
+		"health": 100,
+		"max_health": 100,
+		"cargo": 0,
+		"cargo_capacity": 0,
+		"order": ORDER_IDLE,
+		"order_target_tile": tile,
+		"work_timer": 0.0,
+		"facing": FACING_SOUTH_EAST,
+	}
+	workers.append(unit)
+	_next_unit_id += 1
 	return unit
 
 

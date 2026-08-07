@@ -4,6 +4,13 @@
 
 - Replaced the preplaced starting HQ with a Planet Lander opening sequence using separate flying and landed 3D models.
 - Added six procedural emissive landing jets, touchdown lighting, eased descent, model swap, and operational-state handoff at landing.
+- Added spatial procedural landing audio with an approaching jet-engine rumble and a generated touchdown thud, metal resonance, and sci-fi pressure release.
+- Added threaded 3D building asset warmup: the landed Planet Lander loads behind the sandbox loading screen, while build-button hover/focus primes other models before first placement.
+- Changed touchdown cleanup to release the transient flying model, jet geometry, particles, and light after the landed model takes over.
+- Changed all existing building and unit PBR texture imports to VRAM compression with mipmaps and explicit normal-map handling, and enabled both desktop and mobile VRAM variants for Web exports.
+- Added three selectable Space Marines at Planet Lander touchdown, rendered from Meshy's skinned Run_03 GLB with the Hyper3D base model's PBR material and a movement-driven looping animation.
+- Added a Blender-assisted build step that patches only Meshy's `TEXCOORD_0` data with the Hyper3D Space Marine UV layout, fixing scrambled base textures while keeping the original rig and Run_03 animation byte-identical.
+- Documented the animated-unit GLB, skeleton, material-override, preload, and simulation/render separation workflow for future units.
 - Changed the Planet Lander to become the colony metal store and Hauler delivery target only after touchdown.
 - Added anchored pinch zoom for Mac trackpads and two-finger mobile touch while preserving mouse-wheel zoom.
 - Added mobile three-finger camera rotation/tilt and `Alt` + Mac trackpad pan as the desktop gesture equivalent.

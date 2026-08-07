@@ -694,9 +694,30 @@ func complete_starting_lander_landing() -> bool:
 	if colony_state == null or not colony_state.complete_starting_lander_landing():
 		return false
 	_refresh_unit_paths("planet_lander_landed")
+	_spawn_planet_lander_marines()
 	buildings_changed.emit()
 	colony_changed.emit(colony_state.get_summary_lines())
 	return true
+
+
+func _spawn_planet_lander_marines() -> void:
+	if unit_state == null or colony_state == null or pathfinding_grid == null:
+		return
+	var lander := colony_state.get_nearest_building_of_type(BuildingCatalog.BUILDING_PLANET_LANDER_MODULE, map_data.start_tile)
+	if lander.is_empty():
+		return
+	var origin: Vector2i = lander.get("origin", map_data.start_tile)
+	var footprint: Vector2i = lander.get("footprint", Vector2i(3, 3))
+	var spawn_tiles: Array[Vector2i] = [
+		origin + Vector2i(-1, -1),
+		origin + Vector2i(footprint.x, -1),
+		origin + Vector2i(-1, footprint.y),
+	]
+	for spawn_tile in spawn_tiles:
+		if pathfinding_grid.is_tile_passable(spawn_tile):
+			unit_state.add_space_marine(spawn_tile)
+	if unit_layer != null:
+		unit_layer.request_redraw("planet_lander_marines")
 
 
 func _request_overlay_redraw(reason: String) -> void:

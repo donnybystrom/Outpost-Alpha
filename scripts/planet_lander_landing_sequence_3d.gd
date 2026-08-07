@@ -12,6 +12,8 @@ const LANDING_DURATION := 6.0
 const START_HEIGHT := 14.0
 const TOUCHDOWN_HEIGHT := 0.04
 const MODEL_SCALE := Vector3(1.55, 1.55, 1.55)
+const AUDIO_MIX_RATE := 22050.0
+const TOUCHDOWN_AUDIO_DURATION := 2.25
 const ENGINE_OFFSETS: Array[Vector3] = [
 	Vector3(-0.52, 0.06, -1.08),
 	Vector3(0.52, 0.06, -1.08),
@@ -28,6 +30,14 @@ var _flying_model: MeshInstance3D
 var _engine_particles: Array[GPUParticles3D] = []
 var _engine_flames: Array[MeshInstance3D] = []
 var _engine_light: OmniLight3D
+var _engine_audio_player: AudioStreamPlayer3D
+var _engine_audio_playback: AudioStreamGeneratorPlayback
+var _touchdown_audio_player: AudioStreamPlayer3D
+var _engine_audio_phase_low := 0.0
+var _engine_audio_phase_mid := 0.0
+var _engine_audio_phase_turbine := 0.0
+var _engine_filtered_noise := 0.0
+var _engine_audio_rng := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
@@ -43,6 +53,7 @@ func prepare_landing(map_center: Vector2) -> void:
 	_clear_visuals()
 	_build_flying_model()
 	_build_engine_effects()
+	_build_landing_audio()
 	position = _landing_center + Vector3(0.0, START_HEIGHT, 0.0)
 	visible = false
 	set_process(false)
@@ -59,6 +70,7 @@ func start_landing() -> bool:
 	for particles in _engine_particles:
 		particles.emitting = true
 		particles.restart()
+	_start_engine_audio()
 	return true
 
 
@@ -86,6 +98,7 @@ func _process(delta: float) -> void:
 	position = _landing_center + lateral_drift + Vector3.UP * lerpf(START_HEIGHT, 0.0, eased_progress)
 	rotation.y = sin(_elapsed * 0.55) * 0.025 * remaining
 	_update_engine_effect(progress)
+	_fill_engine_audio(progress)
 	if _elapsed >= LANDING_DURATION:
 		_complete_landing()
 
@@ -224,6 +237,117 @@ func _build_flame_material(albedo: Color, emission: Color, energy: float) -> Sta
 	return material
 
 
+func _build_landing_audio() -> void:
+	var generator := AudioStreamGenerator.new()
+	generator.mix_rate = AUDIO_MIX_RATE
+	generator.buffer_length = 0.4
+	_engine_audio_player = AudioStreamPlayer3D.new()
+	_engine_audio_player.name = "LandingEngineAudio"
+	_engine_audio_player.stream = generator
+	# The orthographic camera orbits roughly 180 world units from its target, so
+	# landing audio needs a broad 3D falloff while retaining directional panning.
+	_engine_audio_player.unit_size = 90.0
+	_engine_audio_player.max_distance = 400.0
+	_engine_audio_player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+	_engine_audio_player.panning_strength = 0.72
+	add_child(_engine_audio_player)
+
+	_touchdown_audio_player = AudioStreamPlayer3D.new()
+	_touchdown_audio_player.name = "LandingTouchdownAudio"
+	_touchdown_audio_player.stream = _build_touchdown_audio_stream()
+	_touchdown_audio_player.unit_size = 110.0
+	_touchdown_audio_player.max_distance = 400.0
+	_touchdown_audio_player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+	_touchdown_audio_player.panning_strength = 0.65
+	add_child(_touchdown_audio_player)
+
+
+func _start_engine_audio() -> void:
+	if _engine_audio_player == null:
+		return
+	_engine_audio_phase_low = 0.0
+	_engine_audio_phase_mid = 0.0
+	_engine_audio_phase_turbine = 0.0
+	_engine_filtered_noise = 0.0
+	_engine_audio_rng.seed = 0x1A4D3E
+	_engine_audio_player.play()
+	_engine_audio_playback = _engine_audio_player.get_stream_playback() as AudioStreamGeneratorPlayback
+	_fill_engine_audio(0.0)
+
+
+func _fill_engine_audio(progress: float) -> void:
+	if _engine_audio_playback == null:
+		return
+	var frames_available := _engine_audio_playback.get_frames_available()
+	if frames_available <= 0:
+		return
+	var frames := PackedVector2Array()
+	frames.resize(frames_available)
+	var proximity := smoothstep(0.0, 1.0, progress)
+	var gain := lerpf(0.11, 0.34, proximity)
+	var low_frequency := lerpf(36.0, 49.0, proximity)
+	var mid_frequency := lerpf(67.0, 83.0, proximity)
+	var turbine_frequency := lerpf(138.0, 186.0, proximity)
+	for frame_index in frames_available:
+		_engine_audio_phase_low = fmod(_engine_audio_phase_low + TAU * low_frequency / AUDIO_MIX_RATE, TAU)
+		_engine_audio_phase_mid = fmod(_engine_audio_phase_mid + TAU * mid_frequency / AUDIO_MIX_RATE, TAU)
+		_engine_audio_phase_turbine = fmod(_engine_audio_phase_turbine + TAU * turbine_frequency / AUDIO_MIX_RATE, TAU)
+		var raw_noise := _engine_audio_rng.randf_range(-1.0, 1.0)
+		_engine_filtered_noise = lerpf(_engine_filtered_noise, raw_noise, 0.055)
+		var combustion := raw_noise * 0.075 + _engine_filtered_noise * 0.32
+		var rumble := sin(_engine_audio_phase_low) * 0.52 + sin(_engine_audio_phase_mid) * 0.24
+		var turbine := sin(_engine_audio_phase_turbine) * (0.08 + proximity * 0.06)
+		var pulse := 0.93 + sin(_engine_audio_phase_low * 0.23) * 0.07
+		var sample := clampf((rumble + turbine + combustion) * gain * pulse, -0.92, 0.92)
+		frames[frame_index] = Vector2(sample, sample)
+	_engine_audio_playback.push_buffer(frames)
+
+
+func _build_touchdown_audio_stream() -> AudioStreamWAV:
+	var frame_count := ceili(AUDIO_MIX_RATE * TOUCHDOWN_AUDIO_DURATION)
+	var pcm := PackedByteArray()
+	pcm.resize(frame_count * 4)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 0x70AC4D0
+	var thud_phase := 0.0
+	var hiss_filter_left := 0.0
+	var hiss_filter_right := 0.0
+	for frame_index in frame_count:
+		var time := float(frame_index) / AUDIO_MIX_RATE
+		var impact_progress := clampf(time / 0.5, 0.0, 1.0)
+		var impact_frequency := lerpf(61.0, 31.0, impact_progress)
+		thud_phase += TAU * impact_frequency / AUDIO_MIX_RATE
+		var impact_envelope := exp(-time * 7.8)
+		var thud := sin(thud_phase) * impact_envelope * 0.72
+		var body_resonance := (
+			sin(TAU * 174.0 * time) * 0.22
+			+ sin(TAU * 286.0 * time) * 0.11
+		) * exp(-time * 11.5)
+		var vent_time := maxf(0.0, time - 0.075)
+		var vent_attack := smoothstep(0.0, 0.045, vent_time)
+		var vent_envelope := vent_attack * exp(-vent_time * 2.15)
+		var noise_left := rng.randf_range(-1.0, 1.0)
+		var noise_right := rng.randf_range(-1.0, 1.0)
+		hiss_filter_left = lerpf(hiss_filter_left, noise_left, 0.065)
+		hiss_filter_right = lerpf(hiss_filter_right, noise_right, 0.065)
+		var hiss_pulse := 0.82 + sin(TAU * 7.5 * vent_time) * 0.18
+		var hiss_left := (noise_left - hiss_filter_left * 0.7) * vent_envelope * hiss_pulse * 0.32
+		var hiss_right := (noise_right - hiss_filter_right * 0.7) * vent_envelope * hiss_pulse * 0.32
+		var pressure_release := sin(TAU * 24.0 * vent_time) * vent_envelope * 0.11
+		var left_sample := clampf(thud + body_resonance + pressure_release + hiss_left, -0.98, 0.98)
+		var right_sample := clampf(thud + body_resonance + pressure_release + hiss_right, -0.98, 0.98)
+		pcm.encode_s16(frame_index * 4, roundi(left_sample * 32767.0))
+		pcm.encode_s16(frame_index * 4 + 2, roundi(right_sample * 32767.0))
+
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = int(AUDIO_MIX_RATE)
+	stream.stereo = true
+	stream.loop_mode = AudioStreamWAV.LOOP_DISABLED
+	stream.data = pcm
+	return stream
+
+
 func _update_engine_effect(progress: float) -> void:
 	var touchdown_fade := clampf((1.0 - progress) / 0.08, 0.0, 1.0)
 	var pulse := 0.88 + sin(_elapsed * 24.0) * 0.12
@@ -242,10 +366,31 @@ func _complete_landing() -> void:
 	set_process(false)
 	for particles in _engine_particles:
 		particles.emitting = false
+	if _engine_audio_player != null:
+		_engine_audio_player.stop()
+	_engine_audio_playback = null
+	if _touchdown_audio_player != null:
+		_touchdown_audio_player.play()
 	visible = false
+	_release_flight_visuals()
 	position = _landing_center
 	rotation = Vector3.ZERO
 	landed.emit()
+
+
+func _release_flight_visuals() -> void:
+	if _flying_model != null:
+		_flying_model.queue_free()
+		_flying_model = null
+	for particles in _engine_particles:
+		particles.queue_free()
+	_engine_particles.clear()
+	for flame in _engine_flames:
+		flame.queue_free()
+	_engine_flames.clear()
+	if _engine_light != null:
+		_engine_light.queue_free()
+		_engine_light = null
 
 
 func _clear_visuals() -> void:
@@ -253,6 +398,9 @@ func _clear_visuals() -> void:
 	_engine_particles.clear()
 	_engine_flames.clear()
 	_engine_light = null
+	_engine_audio_player = null
+	_engine_audio_playback = null
+	_touchdown_audio_player = null
 	for child in get_children():
 		remove_child(child)
 		child.queue_free()

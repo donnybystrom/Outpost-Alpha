@@ -29,7 +29,22 @@ Each building definition should describe:
 
 ## 3D Building Models
 
-The Planet Lander uses two model sets under `assets/3D/buildings/`: `planet_lander_module_flying` during its opening descent and `planet_lander_module_landed` after touchdown. `PlanetLanderLandingSequence3D` owns the transient flying model, six procedural particle jets, and touchdown handoff. `IsoBuilding3DLayer` renders the landed model from the normal building catalog only after the same colony building record becomes operational.
+The Planet Lander uses two model sets under `assets/3D/buildings/`: `planet_lander_module_flying` during its opening descent and `planet_lander_module_landed` after touchdown. `PlanetLanderLandingSequence3D` owns the transient flying model, six procedural particle jets, spatial engine synthesis, pneumatic touchdown sound, and touchdown handoff. The engine generator blends low jet harmonics, turbine resonance, and filtered combustion noise with intensity tied to descent progress. The landed mesh, textures, and materials are warmed during the sandbox loading screen; `IsoBuilding3DLayer` renders them from the normal building catalog only after the same colony building record becomes operational. The flight-only mesh, jet geometry, particles, and light are released at touchdown.
+
+Other model-backed buildings use a hybrid warmup policy rather than loading the entire catalog at startup. Hovering or focusing a construction button requests its mesh and texture resources through Godot's threaded resource loader. If the player clicks first, build-tool activation waits for that same request and then fills the runtime and preview material caches before placement begins.
+
+### 3D texture import policy
+
+All texture maps added for 3D buildings, units, and comparable environment models must be imported as 3D assets rather than with Godot's 2D-oriented defaults:
+
+- Use `VRAM Compressed` (`compress/mode=2`) for diffuse/albedo, emissive, normal, roughness, metallic, and packed PBR maps.
+- Generate mipmaps (`mipmaps/generate=true`).
+- Explicitly enable normal-map import (`compress/normal_map=1`) for files named `texture_normal.*`; do not enable it for other map types.
+- Commit the source image and its generated `.import` metadata. Do not commit `.godot/imported/`.
+- Keep source PNGs for normal and data maps. Diffuse maps may use a high-quality JPEG/WebP source when alpha is unnecessary, but source-file compression does not replace VRAM compression.
+- Choose the lowest source resolution that survives the intended camera distance. Start at 1024x1024 for prominent buildings and 512x512-1024x1024 for smaller buildings and units, then verify visually. Resolution changes are an art decision and are not performed automatically by the importer.
+
+The project importer explicitly generates both S3TC/BPTC desktop and ETC2/ASTC mobile variants, and the Web export includes both sets so GitHub Pages builds can serve laptop and mobile browsers. Apply this policy whenever a new model folder is added under `assets/3D/`; otherwise its first import will fall back to high-memory lossless textures without mipmaps.
 
 `IsoBuilding3DLayer` instantiates model-backed buildings from the same `ColonyState` building records used by the 2D layer. It centers the model on the building footprint, applies model config from `building_catalog.gd`, and does not own placement, selection, pathfinding blockers, vehicle entry, storage, health, or HUD state. Those remain in the gameplay data.
 
