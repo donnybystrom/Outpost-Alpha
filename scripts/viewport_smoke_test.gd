@@ -16,6 +16,7 @@ func _initialize() -> void:
 	await process_frame
 
 	var camera := root.get_node("IsoCamera") as Camera2D
+	var input_controller = root.get_node("MapInputController")
 	var game_hud_root := root.get_node("Ui/UiRoot/GameHud") as Control
 	var hud_panel := root.get_node("Ui/UiRoot/GameHud/StatusPanel") as Control
 	var initial_zoom := camera.zoom
@@ -54,6 +55,131 @@ func _initialize() -> void:
 		push_error("HUD root should not scale with viewport size; layout should remain responsive instead.")
 		quit(1)
 		return
+
+	var gesture_start_zoom: float = camera.zoom.x
+	var magnify := InputEventMagnifyGesture.new()
+	magnify.factor = 1.25
+	magnify.position = square_viewport_size * 0.5
+	camera._unhandled_input(magnify)
+	if not is_equal_approx(camera.zoom.x, gesture_start_zoom * magnify.factor):
+		push_error("Trackpad magnify gesture did not use the shared anchored zoom path.")
+		quit(1)
+		return
+
+	var first_touch := InputEventScreenTouch.new()
+	first_touch.index = 0
+	first_touch.position = Vector2(100.0, 100.0)
+	first_touch.pressed = true
+	camera._unhandled_input(first_touch)
+	var second_touch := InputEventScreenTouch.new()
+	second_touch.index = 1
+	second_touch.position = Vector2(200.0, 100.0)
+	second_touch.pressed = true
+	camera._unhandled_input(second_touch)
+	var pinch_start_zoom: float = camera.zoom.x
+	input_controller._unhandled_input(first_touch)
+	input_controller._unhandled_input(second_touch)
+	var pinch_drag := InputEventScreenDrag.new()
+	pinch_drag.index = 1
+	pinch_drag.position = Vector2(220.0, 100.0)
+	camera._unhandled_input(pinch_drag)
+	input_controller._unhandled_input(pinch_drag)
+	if not is_equal_approx(camera.zoom.x, pinch_start_zoom * 1.2):
+		push_error("Two-finger touch distance did not drive pinch zoom.")
+		quit(1)
+		return
+	if input_controller.primary_button_down:
+		push_error("A pinch gesture leaked into the map's primary pointer command.")
+		quit(1)
+		return
+	first_touch.pressed = false
+	second_touch.pressed = false
+	camera._unhandled_input(first_touch)
+	camera._unhandled_input(second_touch)
+	input_controller._unhandled_input(first_touch)
+	input_controller._unhandled_input(second_touch)
+
+	first_touch.position = Vector2(100.0, 100.0)
+	second_touch.position = Vector2(200.0, 100.0)
+	first_touch.pressed = true
+	second_touch.pressed = true
+	var third_touch := InputEventScreenTouch.new()
+	third_touch.index = 2
+	third_touch.position = Vector2(150.0, 200.0)
+	third_touch.pressed = true
+	for touch in [first_touch, second_touch, third_touch]:
+		camera._unhandled_input(touch)
+		input_controller._unhandled_input(touch)
+	var rotation_start_zoom: float = camera.zoom.x
+	var rotation_start_yaw: float = root.camera_3d.yaw_radians
+	var rotation_start_tilt: float = root.camera_3d.tilt_radians
+	var rotation_drag := InputEventScreenDrag.new()
+	rotation_drag.index = 2
+	rotation_drag.position = Vector2(180.0, 230.0)
+	camera._unhandled_input(rotation_drag)
+	input_controller._unhandled_input(rotation_drag)
+	if not is_equal_approx(camera.zoom.x, rotation_start_zoom):
+		push_error("Three-finger camera rotation leaked into pinch zoom.")
+		quit(1)
+		return
+	if is_equal_approx(root.camera_3d.yaw_radians, rotation_start_yaw) or is_equal_approx(root.camera_3d.tilt_radians, rotation_start_tilt):
+		push_error("Three-finger touch drag did not rotate and tilt the 3D camera.")
+		quit(1)
+		return
+	if input_controller.primary_button_down:
+		push_error("Three-finger camera rotation leaked into the map's primary pointer command.")
+		quit(1)
+		return
+	for touch in [first_touch, second_touch, third_touch]:
+		touch.pressed = false
+		camera._unhandled_input(touch)
+		input_controller._unhandled_input(touch)
+
+	var trackpad_start_yaw: float = root.camera_3d.yaw_radians
+	var trackpad_start_tilt: float = root.camera_3d.tilt_radians
+	var trackpad_pan := InputEventPanGesture.new()
+	trackpad_pan.alt_pressed = true
+	trackpad_pan.delta = Vector2(1.0, 1.0)
+	camera._unhandled_input(trackpad_pan)
+	if is_equal_approx(root.camera_3d.yaw_radians, trackpad_start_yaw) or is_equal_approx(root.camera_3d.tilt_radians, trackpad_start_tilt):
+		push_error("Alt + trackpad pan did not use the shared camera rotation path.")
+		quit(1)
+		return
+
+	var tap_position := square_viewport_size * 0.5
+	var expected_tap_tile: Vector2i = input_controller.viewport_to_tile(tap_position)
+	var tap := InputEventScreenTouch.new()
+	tap.index = 0
+	tap.position = tap_position
+	tap.pressed = true
+	input_controller._unhandled_input(tap)
+	if input_controller.primary_button_down:
+		push_error("Single touch should be deferred until it is identified as a tap or drag.")
+		quit(1)
+		return
+	tap.pressed = false
+	input_controller._unhandled_input(tap)
+	if root.world.selected_tile != expected_tap_tile:
+		push_error("Single-touch tap did not feed the shared map command path.")
+		quit(1)
+		return
+
+	var wheel_start_zoom: float = camera.zoom.x
+	var wheel := InputEventMouseButton.new()
+	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+	wheel.pressed = true
+	wheel.position = square_viewport_size * 0.5
+	camera._unhandled_input(wheel)
+	if not is_equal_approx(camera.zoom.x, wheel_start_zoom * camera.ZOOM_STEP):
+		push_error("Mouse wheel zoom stopped using its existing zoom step.")
+		quit(1)
+		return
+
+	for action in [&"camera_pan_left", &"camera_pan_right", &"camera_pan_up", &"camera_pan_down", &"camera_zoom_in", &"camera_zoom_out"]:
+		if not InputMap.has_action(action):
+			push_error("Missing centralized camera input action: %s" % action)
+			quit(1)
+			return
 
 	camera.set_zoom_level(999.0)
 	root._sync_terrain_3d_camera()

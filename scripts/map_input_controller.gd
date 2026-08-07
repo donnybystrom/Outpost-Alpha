@@ -11,6 +11,12 @@ var primary_uses_viewport_selection := false
 var primary_press_viewport_position := Vector2.ZERO
 var conversion_calls: int = 0
 var last_conversion_usec: int = 0
+var touch_drag_threshold := 6.0
+var _touch_positions: Dictionary[int, Vector2] = {}
+var _touch_primary_index := -1
+var _touch_press_position := Vector2.ZERO
+var _touch_primary_started := false
+var _touch_gesture_consumed := false
 
 
 func _ready() -> void:
@@ -28,6 +34,7 @@ func set_active(next_active: bool) -> void:
 	active = next_active
 	primary_button_down = false
 	primary_uses_viewport_selection = false
+	_reset_touch_state()
 	set_process_unhandled_input(active)
 	process_mode = Node.PROCESS_MODE_INHERIT if active else Node.PROCESS_MODE_DISABLED
 
@@ -155,6 +162,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			secondary_press_at_viewport(mouse_button.position)
 			get_viewport().set_input_as_handled()
 
+	if event is InputEventScreenTouch:
+		_handle_screen_touch(event as InputEventScreenTouch)
+
+	if event is InputEventScreenDrag:
+		_handle_screen_drag(event as InputEventScreenDrag)
+
 	if event is InputEventKey:
 		var key: InputEventKey = event as InputEventKey
 		if key.pressed and not key.echo and key.keycode == KEY_G:
@@ -163,3 +176,57 @@ func _unhandled_input(event: InputEvent) -> void:
 			world.rotate_active_building()
 		elif key.pressed and not key.echo and key.keycode == KEY_F5:
 			world.reload_building_catalog()
+
+
+func _handle_screen_touch(event: InputEventScreenTouch) -> void:
+	if event.pressed:
+		_touch_positions[event.index] = event.position
+		if _touch_positions.size() == 1:
+			_touch_primary_index = event.index
+			_touch_press_position = event.position
+			_touch_primary_started = false
+			_touch_gesture_consumed = false
+		else:
+			_touch_gesture_consumed = true
+			_cancel_touch_primary()
+		return
+
+	var was_primary := event.index == _touch_primary_index
+	_touch_positions.erase(event.index)
+	if was_primary and not _touch_gesture_consumed:
+		if not _touch_primary_started:
+			primary_press_at_viewport(event.position, false)
+		primary_release_at_viewport(event.position)
+	if _touch_positions.is_empty():
+		_reset_touch_state()
+
+
+func _handle_screen_drag(event: InputEventScreenDrag) -> void:
+	if not _touch_positions.has(event.index):
+		return
+	_touch_positions[event.index] = event.position
+	if _touch_gesture_consumed or _touch_positions.size() != 1 or event.index != _touch_primary_index:
+		return
+
+	hover_at_viewport(event.position)
+	if not _touch_primary_started and event.position.distance_to(_touch_press_position) >= touch_drag_threshold:
+		primary_press_at_viewport(_touch_press_position, false)
+		_touch_primary_started = true
+	if _touch_primary_started:
+		primary_drag_at_viewport(event.position)
+
+
+func _cancel_touch_primary() -> void:
+	primary_button_down = false
+	primary_uses_viewport_selection = false
+	_touch_primary_started = false
+	if world != null:
+		world.cancel_primary_interaction()
+
+
+func _reset_touch_state() -> void:
+	_touch_positions.clear()
+	_touch_primary_index = -1
+	_touch_press_position = Vector2.ZERO
+	_touch_primary_started = false
+	_touch_gesture_consumed = false

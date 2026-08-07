@@ -632,7 +632,7 @@ func _build_game_hud() -> void:
 	box.add_child(performance_label)
 
 	var help: Label = Label.new()
-	help.text = "Pan: WASD / arrows / middle mouse  |  Rotate/tilt: Alt + middle mouse  |  Zoom: mouse wheel  |  Grid: G  |  Admin: ` / §"
+	help.text = "Pan: WASD / arrows / middle mouse / left stick  |  Rotate/tilt: Alt + middle mouse / Alt + trackpad drag / 3-finger touch  |  Zoom: wheel / pinch / triggers  |  Grid: G  |  Admin: ` / §"
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(help)
 

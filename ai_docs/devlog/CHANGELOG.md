@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added anchored pinch zoom for Mac trackpads and two-finger mobile touch while preserving mouse-wheel zoom.
+- Added mobile three-finger camera rotation/tilt and `Alt` + Mac trackpad pan as the desktop gesture equivalent.
+- Added centralized camera action mapping with keyboard pan, gamepad left-stick pan, and trigger zoom defaults.
+- Added deferred single-touch map input so pinch gestures do not accidentally select or paint.
 - Added main menu with visual Outpost Alpha backdrop and `Sandbox` / `Quit to OS` actions.
 - Replaced the generated main-menu backdrop with `assets/start_screen_background.png`, centered and aspect-covered across the viewport.
 - Added persistent looping menu/sandbox music from `assets/audio/music/orbital_quiet.mp3` as an MVP music system placeholder.

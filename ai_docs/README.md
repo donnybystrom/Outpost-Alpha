@@ -20,9 +20,12 @@ Minimal Godot 4.7 / GDScript prototype for an isometric 2D RTS foundation.
 
 ## Controls
 
-- `WASD` or arrow keys: pan camera.
+- `WASD`, arrow keys, or gamepad left stick: pan camera.
 - Middle mouse drag: pan camera.
-- Mouse wheel: zoom.
+- Mouse wheel, Mac trackpad pinch, mobile two-finger pinch, or gamepad triggers: zoom.
+- `Alt` + middle mouse or `Alt` + two-finger Mac trackpad drag: rotate and tilt the camera.
+- Mobile three-finger drag: rotate and tilt the camera.
+- Mobile single touch: select, drag, or paint using the same map command path as the mouse.
 - Left click: select tile.
 - `G`: toggle grid overlay.
 - ` / §: toggle the in-game admin panel.

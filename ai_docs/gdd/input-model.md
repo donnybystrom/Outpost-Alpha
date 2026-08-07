@@ -45,7 +45,11 @@ map_y = (world_y / tile_height) - (world_x / tile_width)
 tile = Vector2i(floori(map_x + 0.5), floori(map_y + 0.5))
 ```
 
-This keeps camera zoom, window resize, and viewport expansion outside gameplay math. Future mobile and controller input should feed the same controller/command path, either by passing viewport positions from touch or by moving a virtual cursor/focused tile and calling the same world command methods.
+This keeps camera zoom, window resize, and viewport expansion outside gameplay math. Single-touch input feeds the same viewport command path as the mouse, while two-touch gestures are reserved for pinch zoom. A touch press is deferred until it becomes a tap or drag so the first finger of a pinch cannot accidentally select or paint. Mouse wheel, trackpad magnification, mobile pinch, and gamepad trigger input all feed the same camera zoom command.
+
+Camera actions are registered through `CameraControlMapping`. Keyboard and gamepad bindings resolve to named pan and zoom actions; pointer and gesture events adapt into the same public camera commands. This keeps device-specific events out of camera movement math and leaves room for remapping UI or a virtual controller cursor later.
+
+Three concurrent mobile touches lock the active touch sequence to camera rotation and tilt, using the moving touch centroid as the drag delta. The lock remains until every finger is released so lifting one finger cannot turn a rotation into an accidental pinch. macOS trackpads expose aggregated pan gestures without a finger count, so `Alt` + trackpad pan is the desktop equivalent and shares the existing `Alt` + middle-mouse rotation path.
 
 Selection rectangles are screen-space interactions. While the 3D camera is active, drag-selection stores the raw viewport rectangle and tests units against their current `Camera3D.unproject_position()` screen positions. That keeps Command & Conquer-style selection stable after camera rotation instead of treating the rectangle as a rotated ground-plane area.
 

@@ -272,6 +272,13 @@ func cancel_current_interaction() -> void:
 	clear_unit_selection()
 
 
+func cancel_primary_interaction() -> void:
+	if _is_line_painting:
+		_clear_line_preview()
+	_cancel_unit_selection_drag()
+	_last_drag_paint_tile = Vector2i(-1, -1)
+
+
 func secondary_press_world(_world_position: Vector2, tile: Vector2i) -> void:
 	if _is_line_painting:
 		_clear_line_preview()
