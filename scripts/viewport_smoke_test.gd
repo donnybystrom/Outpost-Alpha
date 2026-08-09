@@ -181,6 +181,24 @@ func _initialize() -> void:
 			quit(1)
 			return
 
+	root.camera_3d.yaw_radians = PI * 0.5
+	root._sync_terrain_3d_camera()
+	var keyboard_pan_delta := Vector2(camera.PAN_SPEED * 0.1, 0.0)
+	var keyboard_pan_center := square_viewport_size * 0.5
+	var expected_keyboard_map_delta: Vector2 = (
+		input_controller.viewport_to_map_position(keyboard_pan_center + keyboard_pan_delta)
+		- input_controller.viewport_to_map_position(keyboard_pan_center)
+	)
+	var keyboard_pan_start_map: Vector2 = root._iso_screen_to_map_position(camera.position)
+	Input.action_press(&"camera_pan_right")
+	camera._process(0.1)
+	Input.action_release(&"camera_pan_right")
+	var actual_keyboard_map_delta: Vector2 = root._iso_screen_to_map_position(camera.position) - keyboard_pan_start_map
+	if not actual_keyboard_map_delta.is_equal_approx(expected_keyboard_map_delta):
+		push_error("Keyboard camera pan did not follow viewport-right after camera rotation.")
+		quit(1)
+		return
+
 	camera.set_zoom_level(999.0)
 	root._sync_terrain_3d_camera()
 	if not is_equal_approx(camera.zoom.x, camera.MAX_ZOOM) or camera.MAX_ZOOM < 16.0:

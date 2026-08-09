@@ -1,17 +1,19 @@
 extends RefCounted
 
+const PlanetSurfacePalette := preload("res://scripts/planet_surface_palette.gd")
+
 const TERRAIN_COLORS := {
-	0: Color8(47, 56, 50),
-	1: Color8(44, 74, 31),
-	2: Color8(99, 42, 126),
-	3: Color8(132, 76, 31),
-	4: Color8(28, 127, 139),
-	5: Color8(77, 76, 71),
+	0: PlanetSurfacePalette.WEATHERED_DUST,
+	1: PlanetSurfacePalette.FUNGAL_CRUST_DARK,
+	2: PlanetSurfacePalette.CRYSTAL,
+	3: PlanetSurfacePalette.MINERAL_WARM,
+	4: PlanetSurfacePalette.VENT_MINERAL,
+	5: PlanetSurfacePalette.BEDROCK_MID,
 }
 
 const TERRAIN_NAMES := {
 	0: "Basalt plain",
-	1: "Alien scrub",
+	1: "Fungal crust",
 	2: "Crystal growth",
 	3: "Ore ridge",
 	4: "Geothermal vent",

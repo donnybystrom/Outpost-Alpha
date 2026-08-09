@@ -205,6 +205,7 @@ func _chunk_instance(chunk_coord: Vector2i) -> MeshInstance3D:
 	var instance := MeshInstance3D.new()
 	instance.name = "RoadChunk_%d_%d" % [chunk_coord.x, chunk_coord.y]
 	instance.material_override = material
+	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	chunk_instance_by_coord[chunk_coord] = instance
 	add_child(instance)
 	return instance

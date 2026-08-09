@@ -14,35 +14,22 @@ const UNIT_HAULER := "hauler"
 
 const CATALOG_PATH := "res://scripts/building_catalog.gd"
 const BUILDINGS_ATLAS_PATH := "res://assets/objects/buildings.png"
+const LIVING_QUARTERS_MODEL_MESH_PATH := "res://assets/3D/buildings/living_quarters_2/base.obj"
+const LIVING_QUARTERS_MODEL_DIFFUSE_TEXTURE_PATH := "res://assets/3D/buildings/living_quarters_2/texture_diffuse.png"
 const HQ_MODEL_MESH_PATH := "res://assets/3D/buildings/hq/base.obj"
 const HQ_MODEL_DIFFUSE_TEXTURE_PATH := "res://assets/3D/buildings/hq/texture_diffuse.png"
 const HQ_MODEL_EMISSIVE_TEXTURE_PATH := "res://assets/3D/buildings/hq/texture_emissive.png"
 const HQ_MODEL_NORMAL_TEXTURE_PATH := "res://assets/3D/buildings/hq/texture_normal.png"
 const HQ_MODEL_ROUGHNESS_TEXTURE_PATH := "res://assets/3D/buildings/hq/texture_roughness.png"
 const HQ_MODEL_METALLIC_TEXTURE_PATH := "res://assets/3D/buildings/hq/texture_metallic.png"
-const PLANET_LANDER_MODEL_MESH_PATH := "res://assets/3D/buildings/planet_lander_module_landed/base.obj"
-const PLANET_LANDER_MODEL_DIFFUSE_TEXTURE_PATH := "res://assets/3D/buildings/planet_lander_module_landed/texture_diffuse.png"
-const PLANET_LANDER_MODEL_NORMAL_TEXTURE_PATH := "res://assets/3D/buildings/planet_lander_module_landed/texture_normal.png"
-const PLANET_LANDER_MODEL_ROUGHNESS_TEXTURE_PATH := "res://assets/3D/buildings/planet_lander_module_landed/texture_roughness.png"
-const PLANET_LANDER_MODEL_METALLIC_TEXTURE_PATH := "res://assets/3D/buildings/planet_lander_module_landed/texture_metallic.png"
-const OXYGEN_EXTRACTOR_MODEL_MESH_PATH := "res://assets/3D/buildings/oxygen_extractor/base.obj"
-const OXYGEN_EXTRACTOR_MODEL_DIFFUSE_TEXTURE_PATH := "res://assets/3D/buildings/oxygen_extractor/texture_diffuse.png"
-const OXYGEN_EXTRACTOR_MODEL_EMISSIVE_TEXTURE_PATH := "res://assets/3D/buildings/oxygen_extractor/texture_emissive.png"
-const OXYGEN_EXTRACTOR_MODEL_NORMAL_TEXTURE_PATH := "res://assets/3D/buildings/oxygen_extractor/texture_normal.png"
-const OXYGEN_EXTRACTOR_MODEL_ROUGHNESS_TEXTURE_PATH := "res://assets/3D/buildings/oxygen_extractor/texture_roughness.png"
-const OXYGEN_EXTRACTOR_MODEL_METALLIC_TEXTURE_PATH := "res://assets/3D/buildings/oxygen_extractor/texture_metallic.png"
-const MACHINE_PARK_MODEL_MESH_PATH := "res://assets/3D/buildings/machine_park/base.obj"
-const MACHINE_PARK_MODEL_DIFFUSE_TEXTURE_PATH := "res://assets/3D/buildings/machine_park/texture_diffuse.png"
-const MACHINE_PARK_MODEL_EMISSIVE_TEXTURE_PATH := "res://assets/3D/buildings/machine_park/texture_emissive.png"
-const MACHINE_PARK_MODEL_NORMAL_TEXTURE_PATH := "res://assets/3D/buildings/machine_park/texture_normal.png"
-const MACHINE_PARK_MODEL_ROUGHNESS_TEXTURE_PATH := "res://assets/3D/buildings/machine_park/texture_roughness.png"
-const MACHINE_PARK_MODEL_METALLIC_TEXTURE_PATH := "res://assets/3D/buildings/machine_park/texture_metallic.png"
-const MILLING_PLANT_MODEL_MESH_PATH := "res://assets/3D/buildings/milling_plant/base.obj"
-const MILLING_PLANT_MODEL_DIFFUSE_TEXTURE_PATH := "res://assets/3D/buildings/milling_plant/texture_diffuse.png"
-const MILLING_PLANT_MODEL_EMISSIVE_TEXTURE_PATH := "res://assets/3D/buildings/milling_plant/texture_emissive.png"
-const MILLING_PLANT_MODEL_NORMAL_TEXTURE_PATH := "res://assets/3D/buildings/milling_plant/texture_normal.png"
-const MILLING_PLANT_MODEL_ROUGHNESS_TEXTURE_PATH := "res://assets/3D/buildings/milling_plant/texture_roughness.png"
-const MILLING_PLANT_MODEL_METALLIC_TEXTURE_PATH := "res://assets/3D/buildings/milling_plant/texture_metallic.png"
+const PLANET_LANDER_MODEL_MESH_PATH := "res://assets/3D/buildings/planet_lander_module_landed_2/base.obj"
+const PLANET_LANDER_MODEL_DIFFUSE_TEXTURE_PATH := "res://assets/3D/buildings/planet_lander_module_landed_2/texture_diffuse.png"
+const OXYGEN_EXTRACTOR_MODEL_MESH_PATH := "res://assets/3D/buildings/oxygen_extractor_2/base.obj"
+const OXYGEN_EXTRACTOR_MODEL_DIFFUSE_TEXTURE_PATH := "res://assets/3D/buildings/oxygen_extractor_2/texture_diffuse.png"
+const MACHINE_PARK_MODEL_MESH_PATH := "res://assets/3D/buildings/machine_park_2/base.obj"
+const MACHINE_PARK_MODEL_DIFFUSE_TEXTURE_PATH := "res://assets/3D/buildings/machine_park_2/texture_diffuse.png"
+const MILLING_PLANT_MODEL_MESH_PATH := "res://assets/3D/buildings/milling_plant_2/base.obj"
+const MILLING_PLANT_MODEL_DIFFUSE_TEXTURE_PATH := "res://assets/3D/buildings/milling_plant_2/texture_diffuse.png"
 
 const BUILDING_TYPES := {
 	BUILDING_LIVING_QUARTERS: {
@@ -57,6 +44,13 @@ const BUILDING_TYPES := {
 		"metal_cost": 0,
 		"vehicle_entry": Vector2i(1, 2),
 		"vehicle_approach": Vector2i(1, 3),
+		"model": {
+			"mesh_path": LIVING_QUARTERS_MODEL_MESH_PATH,
+			"diffuse_texture": LIVING_QUARTERS_MODEL_DIFFUSE_TEXTURE_PATH,
+			"scale": Vector3(1.05, 1.05, 1.5),
+			"height_offset": 0.03,
+			"rotation_y": 0.0,
+		},
 	},
 	BUILDING_OXYGEN_EXTRACTOR: {
 		"name": "Oxygen Extractor",
@@ -80,10 +74,6 @@ const BUILDING_TYPES := {
 		"model": {
 			"mesh_path": OXYGEN_EXTRACTOR_MODEL_MESH_PATH,
 			"diffuse_texture": OXYGEN_EXTRACTOR_MODEL_DIFFUSE_TEXTURE_PATH,
-			"emissive_texture": OXYGEN_EXTRACTOR_MODEL_EMISSIVE_TEXTURE_PATH,
-			"normal_texture": OXYGEN_EXTRACTOR_MODEL_NORMAL_TEXTURE_PATH,
-			"roughness_texture": OXYGEN_EXTRACTOR_MODEL_ROUGHNESS_TEXTURE_PATH,
-			"metallic_texture": OXYGEN_EXTRACTOR_MODEL_METALLIC_TEXTURE_PATH,
 			"scale": Vector3(1.05, 1.05, 1.05),
 			"height_offset": 0.04,
 			"rotation_y": 0.0,
@@ -121,13 +111,9 @@ const BUILDING_TYPES := {
 		"model": {
 			"mesh_path": MACHINE_PARK_MODEL_MESH_PATH,
 			"diffuse_texture": MACHINE_PARK_MODEL_DIFFUSE_TEXTURE_PATH,
-			"emissive_texture": MACHINE_PARK_MODEL_EMISSIVE_TEXTURE_PATH,
-			"normal_texture": MACHINE_PARK_MODEL_NORMAL_TEXTURE_PATH,
-			"roughness_texture": MACHINE_PARK_MODEL_ROUGHNESS_TEXTURE_PATH,
-			"metallic_texture": MACHINE_PARK_MODEL_METALLIC_TEXTURE_PATH,
-			"scale": Vector3(2.2,2.2,2.2),
+			"scale": Vector3(1.8, 3.0, 1.1),
 			"height_offset": 0,
-			"rotation_y": PI * 0.5,
+			"rotation_y": 0.0,
 		},
 	},
 	BUILDING_MILLING_PLANT: {
@@ -154,11 +140,7 @@ const BUILDING_TYPES := {
 		"model": {
 			"mesh_path": MILLING_PLANT_MODEL_MESH_PATH,
 			"diffuse_texture": MILLING_PLANT_MODEL_DIFFUSE_TEXTURE_PATH,
-			"emissive_texture": MILLING_PLANT_MODEL_EMISSIVE_TEXTURE_PATH,
-			"normal_texture": MILLING_PLANT_MODEL_NORMAL_TEXTURE_PATH,
-			"roughness_texture": MILLING_PLANT_MODEL_ROUGHNESS_TEXTURE_PATH,
-			"metallic_texture": MILLING_PLANT_MODEL_METALLIC_TEXTURE_PATH,
-			"scale": Vector3(1.5, 1.5, 1.5),
+			"scale": Vector3(1.25, 1.5, 1.5),
 			"height_offset": 0.03,
 			"rotation_y": 0.0,
 		},
@@ -210,9 +192,6 @@ const BUILDING_TYPES := {
 		"model": {
 			"mesh_path": PLANET_LANDER_MODEL_MESH_PATH,
 			"diffuse_texture": PLANET_LANDER_MODEL_DIFFUSE_TEXTURE_PATH,
-			"normal_texture": PLANET_LANDER_MODEL_NORMAL_TEXTURE_PATH,
-			"roughness_texture": PLANET_LANDER_MODEL_ROUGHNESS_TEXTURE_PATH,
-			"metallic_texture": PLANET_LANDER_MODEL_METALLIC_TEXTURE_PATH,
 			"scale": Vector3(1.55, 1.55, 1.55),
 			"height_offset": 0.04,
 			"rotation_y": 0.0,

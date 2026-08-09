@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added bounded realtime directional shadows for model-backed buildings, vehicles, animated Space Marines, and the descending Planet Lander, with Web-oriented caster filtering and a 2048 px shadow-map cap.
 - Replaced the preplaced starting HQ with a Planet Lander opening sequence using separate flying and landed 3D models.
 - Added six procedural emissive landing jets, touchdown lighting, eased descent, model swap, and operational-state handoff at landing.
 - Added spatial procedural landing audio with an approaching jet-engine rumble and a generated touchdown thud, metal resonance, and sci-fi pressure release.
@@ -15,6 +16,7 @@
 - Added anchored pinch zoom for Mac trackpads and two-finger mobile touch while preserving mouse-wheel zoom.
 - Added mobile three-finger camera rotation/tilt and `Alt` + Mac trackpad pan as the desktop gesture equivalent.
 - Added centralized camera action mapping with keyboard pan, gamepad left-stick pan, and trigger zoom defaults.
+- Changed keyboard and gamepad camera pan to follow viewport directions after camera rotation, matching middle-mouse pan behavior.
 - Added deferred single-touch map input so pinch gestures do not accidentally select or paint.
 - Added main menu with visual Outpost Alpha backdrop and `Sandbox` / `Quit to OS` actions.
 - Replaced the generated main-menu backdrop with `assets/start_screen_background.png`, centered and aspect-covered across the viewport.

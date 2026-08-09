@@ -96,6 +96,7 @@ func _add_model_instance(building: Dictionary) -> bool:
 	instance.name = "Building3D_%s_%s" % [building_type, int(building.get("id", 0))]
 	instance.mesh = mesh
 	instance.material_override = _material_for_building(building_type, model_config)
+	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	instance.transform = _building_transform(building, model_config)
 	add_child(instance)
 	return true

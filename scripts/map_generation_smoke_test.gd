@@ -20,6 +20,8 @@ func _initialize() -> void:
 		quit(1)
 		return
 
+	_assert_surface_fields(map_data)
+
 	if map_data.build_radius != 25:
 		push_error("Guaranteed build radius should be default min radius: %s" % map_data.build_radius)
 		quit(1)
@@ -189,3 +191,55 @@ func _count_terrain(map_data: RefCounted, terrain_id: int) -> int:
 			if map_data.get_terrain(Vector2i(x, y)) == terrain_id:
 				count += 1
 	return count
+
+
+func _assert_surface_fields(map_data: RefCounted) -> void:
+	var distinct_samples := {}
+	var distinct_geology_samples := {}
+	var found_mountain_transition := false
+	for y in range(0, map_data.size.y, 8):
+		for x in range(0, map_data.size.x, 8):
+			var tile := Vector2i(x, y)
+			var values := Vector3(
+				map_data.get_moisture(tile),
+				map_data.get_radiation(tile),
+				map_data.get_mineral_content(tile)
+			)
+			if values.x < 0.0 or values.x > 1.0 or values.y < 0.0 or values.y > 1.0 or values.z < 0.0 or values.z > 1.0:
+				push_error("Ecology surface parameters should remain normalized: %s" % values)
+				quit(1)
+				return
+			distinct_samples[Vector3i(roundi(values.x * 16.0), roundi(values.y * 16.0), roundi(values.z * 16.0))] = true
+			var geology := Vector4(
+				map_data.get_mountain_edge_weight(tile),
+				map_data.get_dustiness(tile),
+				map_data.get_surface_age(tile),
+				map_data.get_rockiness(tile)
+			)
+			if geology.x < 0.0 or geology.x > 1.0 or geology.y < 0.0 or geology.y > 1.0 or geology.z < 0.0 or geology.z > 1.0 or geology.w < 0.0 or geology.w > 1.0:
+				push_error("Geology surface parameters should remain normalized: %s" % geology)
+				quit(1)
+				return
+			distinct_geology_samples[Vector3i(roundi(geology.y * 16.0), roundi(geology.z * 16.0), roundi(geology.w * 16.0))] = true
+	if distinct_samples.size() < 8:
+		push_error("Ecology fields should contain coherent variation instead of one constant value.")
+		quit(1)
+		return
+	if distinct_geology_samples.size() < 8:
+		push_error("Geology fields should contain macro variation instead of one constant ground tone.")
+		quit(1)
+		return
+
+	for y in map_data.size.y:
+		for x in map_data.size.x:
+			var tile := Vector2i(x, y)
+			if map_data.get_terrain(tile) == 5:
+				continue
+			if map_data.get_mountain_edge_weight(tile) > 0.75:
+				found_mountain_transition = true
+				break
+		if found_mountain_transition:
+			break
+	if not found_mountain_transition:
+		push_error("Mountain massifs should generate a graded scree field on adjacent ground.")
+		quit(1)

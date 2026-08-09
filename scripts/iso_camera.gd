@@ -4,6 +4,7 @@ const CameraControlMapping := preload("res://scripts/camera_control_mapping.gd")
 
 signal view_rotation_dragged(relative_pixels: Vector2)
 signal pan_dragged(relative_pixels: Vector2, previous_position: Vector2, current_position: Vector2)
+signal keyboard_pan_requested(viewport_delta: Vector2)
 
 const PAN_SPEED := 520.0
 const DRAG_SPEED := 1.0
@@ -37,7 +38,11 @@ func _process(delta: float) -> void:
 	var direction := CameraControlMapping.pan_direction()
 
 	if direction != Vector2.ZERO:
-		position += direction * PAN_SPEED * delta / zoom.x
+		var viewport_delta := direction * PAN_SPEED * delta
+		if external_pan_enabled:
+			keyboard_pan_requested.emit(viewport_delta)
+		else:
+			position += viewport_delta / zoom.x
 
 	var zoom_axis := CameraControlMapping.zoom_axis()
 	if not is_zero_approx(zoom_axis):

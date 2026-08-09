@@ -26,7 +26,7 @@ const MAP_SIZE := Vector2i(96, 96)
 
 const TERRAIN_NAMES := {
 	0: "Basalt plain",
-	1: "Alien scrub",
+	1: "Fungal crust",
 	2: "Crystal growth",
 	3: "Ore ridge",
 	4: "Geothermal vent",
@@ -1017,6 +1017,7 @@ func _mining_work_tiles(mountain_tile: Vector2i, count: int) -> Array[Vector2i]:
 
 
 func _refresh_terrain_layer() -> void:
+	ProceduralMapGenerator.refresh_visual_fields(map_data)
 	if terrain_layer != null:
 		terrain_layer.request_redraw("terrain_edit")
 	terrain_changed.emit()

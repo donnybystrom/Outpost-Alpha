@@ -82,6 +82,7 @@ func set_preview(building_type: String, origin: Vector2i, orientation: String, v
 	if preview_instance == null:
 		preview_instance = MeshInstance3D.new()
 		preview_instance.name = "BuildingPlacementPreview3D"
+		preview_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(preview_instance)
 
 	_current_key = next_key
@@ -190,6 +191,7 @@ func _add_edge(start: Vector3, end: Vector3, valid: bool) -> void:
 		return
 	var edge := MeshInstance3D.new()
 	edge.name = "FootprintEdge"
+	edge.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	edge.mesh = _edge_mesh(start.distance_to(end))
 	edge.material_override = _footprint_material(valid)
 	var midpoint := (start + end) * 0.5

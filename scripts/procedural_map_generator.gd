@@ -12,6 +12,7 @@ const DEFAULT_MOUNTAIN_PERCENT := 67
 const MOUNTAIN_CLOSING_PASSES := 1
 const MOUNTAIN_CLOSING_NEIGHBORS := 5
 const MAX_MOUNTAIN_HOLE_TILES := 24
+const MOUNTAIN_EDGE_RADIUS := 3.5
 
 
 static func generate(map_size: Vector2i, seed: int = 0, min_build_radius: int = 25, max_build_radius: int = 40, path_count: int = 3, path_width: int = 8, clearing_noise: int = 45, mountain_percent: int = DEFAULT_MOUNTAIN_PERCENT, include_demo_roads: bool = false) -> RefCounted:
@@ -45,7 +46,109 @@ static func generate(map_size: Vector2i, seed: int = 0, min_build_radius: int = 
 	_carve_exit_paths(map_data, rng, path_count, path_width)
 	if include_demo_roads:
 		_place_demo_roads(map_data)
+	_generate_surface_fields(map_data, seed + 2027)
 	return map_data
+
+
+static func _generate_surface_fields(map_data: RefCounted, seed: int) -> void:
+	var moisture_noise := FastNoiseLite.new()
+	moisture_noise.seed = seed
+	moisture_noise.frequency = 0.032
+	moisture_noise.fractal_octaves = 4
+	moisture_noise.fractal_lacunarity = 2.0
+	moisture_noise.fractal_gain = 0.52
+
+	var radiation_noise := FastNoiseLite.new()
+	radiation_noise.seed = seed + 103
+	radiation_noise.frequency = 0.021
+	radiation_noise.fractal_octaves = 3
+	radiation_noise.fractal_gain = 0.48
+
+	var mineral_noise := FastNoiseLite.new()
+	mineral_noise.seed = seed + 251
+	mineral_noise.frequency = 0.047
+	mineral_noise.fractal_octaves = 4
+	mineral_noise.fractal_gain = 0.56
+
+	var dust_noise := FastNoiseLite.new()
+	dust_noise.seed = seed + 397
+	dust_noise.frequency = 0.026
+	dust_noise.fractal_octaves = 3
+	dust_noise.fractal_gain = 0.5
+
+	var age_noise := FastNoiseLite.new()
+	age_noise.seed = seed + 461
+	age_noise.frequency = 0.014
+	age_noise.fractal_octaves = 3
+	age_noise.fractal_gain = 0.54
+
+	var rock_noise := FastNoiseLite.new()
+	rock_noise.seed = seed + 557
+	rock_noise.frequency = 0.082
+	rock_noise.fractal_octaves = 3
+	rock_noise.fractal_gain = 0.48
+
+	for y in map_data.size.y:
+		for x in map_data.size.x:
+			var tile := Vector2i(x, y)
+			var terrain_id: int = map_data.get_terrain(tile)
+			var moisture_value := _noise_to_unit(moisture_noise.get_noise_2d(float(x), float(y)))
+			var radiation_value := _noise_to_unit(radiation_noise.get_noise_2d(float(x), float(y)))
+			var mineral_value := _noise_to_unit(mineral_noise.get_noise_2d(float(x), float(y)))
+			var dust_value := _noise_to_unit(dust_noise.get_noise_2d(float(x), float(y)))
+			var age_value := _noise_to_unit(age_noise.get_noise_2d(float(x), float(y)))
+			var rock_value := _noise_to_unit(rock_noise.get_noise_2d(float(x), float(y)))
+
+			# The logical terrain influences ecology, but does not replace these continuous fields.
+			if terrain_id == TERRAIN_FOREST:
+				moisture_value = minf(1.0, moisture_value + 0.24)
+				radiation_value *= 0.72
+			elif terrain_id == TERRAIN_CRYSTAL:
+				mineral_value = minf(1.0, mineral_value + 0.34)
+			elif terrain_id == TERRAIN_ORE:
+				mineral_value = minf(1.0, mineral_value + 0.46)
+			elif terrain_id == TERRAIN_VENT:
+				moisture_value *= 0.42
+				mineral_value = minf(1.0, mineral_value + 0.22)
+				radiation_value = minf(1.0, radiation_value + 0.16)
+			elif terrain_id == TERRAIN_MOUNTAIN:
+				moisture_value *= 0.58
+				mineral_value = minf(1.0, mineral_value + 0.18)
+				rock_value = minf(1.0, rock_value + 0.35)
+				dust_value *= 0.55
+
+			map_data.set_surface_parameters(tile, moisture_value, radiation_value, mineral_value)
+			map_data.set_geology_parameters(tile, dust_value, age_value, rock_value)
+
+	_generate_mountain_edge_weights(map_data)
+
+
+static func refresh_visual_fields(map_data: RefCounted) -> void:
+	if map_data != null:
+		_generate_surface_fields(map_data, int(map_data.seed) + 2027)
+
+
+static func _generate_mountain_edge_weights(map_data: RefCounted) -> void:
+	var scan_radius := ceili(MOUNTAIN_EDGE_RADIUS)
+	for y in map_data.size.y:
+		for x in map_data.size.x:
+			var tile := Vector2i(x, y)
+			if map_data.get_terrain(tile) == TERRAIN_MOUNTAIN:
+				map_data.set_mountain_edge_weight(tile, 1.0)
+				continue
+			var nearest_distance := MOUNTAIN_EDGE_RADIUS + 1.0
+			for offset_y in range(-scan_radius, scan_radius + 1):
+				for offset_x in range(-scan_radius, scan_radius + 1):
+					var neighbor := tile + Vector2i(offset_x, offset_y)
+					if not map_data.is_inside(neighbor) or map_data.get_terrain(neighbor) != TERRAIN_MOUNTAIN:
+						continue
+					nearest_distance = minf(nearest_distance, Vector2(offset_x, offset_y).length())
+			var edge_weight := 1.0 - smoothstep(0.55, MOUNTAIN_EDGE_RADIUS, nearest_distance)
+			map_data.set_mountain_edge_weight(tile, edge_weight)
+
+
+static func _noise_to_unit(value: float) -> float:
+	return clampf(value * 0.5 + 0.5, 0.0, 1.0)
 
 
 static func _generate_ground(map_data: RefCounted, seed: int) -> void:

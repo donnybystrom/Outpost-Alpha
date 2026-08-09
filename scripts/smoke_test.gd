@@ -110,9 +110,9 @@ func _initialize() -> void:
 		push_error("Main scene should create Terrain3DLayer for the 3D ground renderer.")
 		quit(1)
 		return
-	var forest_3d_layer := root.get_node_or_null("Forest3DLayer")
-	if forest_3d_layer == null:
-		push_error("Main scene should create Forest3DLayer for 3D tree placement.")
+	var surface_detail_3d_layer := root.get_node_or_null("SurfaceDetail3DLayer")
+	if surface_detail_3d_layer == null:
+		push_error("Main scene should create SurfaceDetail3DLayer for procedural wilderness props.")
 		quit(1)
 		return
 	var mountain_3d_layer := root.get_node_or_null("Mountain3DLayer")
@@ -189,8 +189,44 @@ func _initialize() -> void:
 		push_error("Main scene should create a visible DirectionalLight3D sun for 3D world lighting.")
 		quit(1)
 		return
-	if sun_light.shadow_enabled:
-		push_error("MVP sun shadows should be disabled by default until shadow quality controls exist.")
+	if not sun_light.shadow_enabled:
+		push_error("MVP sun should cast realtime shadows for model-backed buildings and units.")
+		quit(1)
+		return
+	if sun_light.directional_shadow_mode != DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS:
+		push_error("Stylized sun should use four directional shadow splits for crisp close-range silhouettes.")
+		quit(1)
+		return
+	if not is_equal_approx(sun_light.directional_shadow_max_distance, root.sun_shadow_max_distance):
+		push_error("MVP sun shadow distance should stay bounded for Web performance.")
+		quit(1)
+		return
+	var configured_sun_orbit_enabled: bool = root.sun_orbit_enabled
+	root.sun_orbit_enabled = false
+	var sun_rotation_before_orbit := sun_light.rotation_degrees.y
+	root._advance_sun_orbit(1.0)
+	if not is_equal_approx(sun_light.rotation_degrees.y, sun_rotation_before_orbit):
+		push_error("Sun orbit should not advance while the runtime toggle is disabled.")
+		quit(1)
+		return
+	root.sun_orbit_enabled = true
+	root._advance_sun_orbit(1.0)
+	var sun_orbit_step := fposmod(sun_light.rotation_degrees.y - sun_rotation_before_orbit, 360.0)
+	if absf(sun_orbit_step - root.sun_orbit_degrees_per_second) > 0.01:
+		push_error("In-game sun should orbit slowly so directional shadows rotate across the board (before %.3f, step %.3f)." % [sun_rotation_before_orbit, sun_orbit_step])
+		quit(1)
+		return
+	root.sun_orbit_enabled = configured_sun_orbit_enabled
+	if int(ProjectSettings.get_setting("rendering/lights_and_shadows/directional_shadow/size", 0)) != 2048:
+		push_error("Directional shadow texture should stay capped at 2048 px.")
+		quit(1)
+		return
+	if int(ProjectSettings.get_setting("rendering/lights_and_shadows/directional_shadow/soft_shadow_filter_quality", -1)) != 0:
+		push_error("Directional shadow filtering should be disabled for crisp, stable stylized shadows.")
+		quit(1)
+		return
+	if not is_equal_approx(sun_light.shadow_blur, root.sun_shadow_blur) or sun_light.light_angular_distance > 0.0 or sun_light.directional_shadow_blend_splits != root.sun_shadow_blend_splits:
+		push_error("Stylized sun shadow filtering and split blending should match runtime.cfg.")
 		quit(1)
 		return
 	var world_environment := root.get_node_or_null("WorldEnvironment") as WorldEnvironment
@@ -199,10 +235,36 @@ func _initialize() -> void:
 		quit(1)
 		return
 	if terrain_3d_layer.get_child_count() > 0:
-		var terrain_instance := terrain_3d_layer.get_child(0) as MultiMeshInstance3D
-		var terrain_material := terrain_instance.material_override as StandardMaterial3D
-		if terrain_material == null or terrain_material.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED:
-			push_error("3D terrain material should receive lighting instead of being unshaded.")
+		var terrain_instance := terrain_3d_layer.get_child(0) as MeshInstance3D
+		var terrain_material := terrain_instance.material_override as ShaderMaterial
+		if terrain_material == null or terrain_material.shader == null:
+			push_error("3D terrain chunks should share the world-space biome shader.")
+			quit(1)
+			return
+		if terrain_instance.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+			push_error("Terrain receivers should not waste shadow-map draws as casters.")
+			quit(1)
+			return
+	var expected_terrain_chunks := ceili(float(world.map_data.size.x) / float(terrain_3d_layer.CHUNK_SIZE)) * ceili(float(world.map_data.size.y) / float(terrain_3d_layer.CHUNK_SIZE))
+	if terrain_3d_layer.get_child_count() != expected_terrain_chunks:
+		push_error("Terrain3DLayer should render one continuous mesh per chunk, not one plane per tile.")
+		quit(1)
+		return
+	if terrain_3d_layer.biome_texture == null or terrain_3d_layer.ecology_texture == null:
+		push_error("Terrain3DLayer should upload biome and ecology mask fields for blended world-space rendering.")
+		quit(1)
+		return
+	if surface_detail_3d_layer.meshes.size() < 4 or surface_detail_3d_layer.last_placement_count <= 0:
+		push_error("SurfaceDetail3DLayer should generate reusable rock, crystal, fungus and vent details.")
+		quit(1)
+		return
+	for detail_instance in surface_detail_3d_layer.get_children():
+		if not detail_instance is MultiMeshInstance3D:
+			push_error("Planetary surface details should use chunked MultiMesh instances.")
+			quit(1)
+			return
+		if (detail_instance as MultiMeshInstance3D).cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+			push_error("MVP surface detail instances should stay out of the realtime shadow pass.")
 			quit(1)
 			return
 
@@ -281,18 +343,46 @@ func _initialize() -> void:
 		push_error("Machine Park should use a non-empty configured horizontal footprint.")
 		quit(1)
 		return
-	if world.building_catalog.get_model_config("oxygen_extractor").get("mesh_path", "") != "res://assets/3D/buildings/oxygen_extractor/base.obj":
-		push_error("Oxygen Extractor should be configured with its 3D OBJ model asset.")
+	var oxygen_model_config: Dictionary = world.building_catalog.get_model_config("oxygen_extractor")
+	if oxygen_model_config.get("mesh_path", "") != "res://assets/3D/buildings/oxygen_extractor_2/base.obj":
+		push_error("Oxygen Extractor should be configured with its low-poly 3D OBJ model asset.")
 		quit(1)
 		return
-	if world.building_catalog.get_model_config("machine_park").get("mesh_path", "") != "res://assets/3D/buildings/machine_park/base.obj":
-		push_error("Machine Park should be configured with its 3D OBJ model asset.")
+	if oxygen_model_config.get("diffuse_texture", "") != "res://assets/3D/buildings/oxygen_extractor_2/texture_diffuse.png":
+		push_error("Oxygen Extractor should use its low-resolution diffuse texture.")
 		quit(1)
 		return
-	if world.building_catalog.get_model_config("milling_plant").get("mesh_path", "") != "res://assets/3D/buildings/milling_plant/base.obj":
-		push_error("Milling Plant should be configured with its 3D OBJ model asset.")
+	for pbr_key: String in ["emissive_texture", "normal_texture", "roughness_texture", "metallic_texture"]:
+		if oxygen_model_config.has(pbr_key):
+			push_error("Oxygen Extractor should use a diffuse-only material; found '%s'." % pbr_key)
+			quit(1)
+			return
+	var living_model_config: Dictionary = world.building_catalog.get_model_config("living_quarters")
+	if living_model_config.get("mesh_path", "") != "res://assets/3D/buildings/living_quarters_2/base.obj" or living_model_config.get("diffuse_texture", "") != "res://assets/3D/buildings/living_quarters_2/texture_diffuse.png":
+		push_error("Living Quarters should use its new low-poly model and diffuse texture.")
 		quit(1)
 		return
+	for pbr_key: String in ["emissive_texture", "normal_texture", "roughness_texture", "metallic_texture"]:
+		if living_model_config.has(pbr_key):
+			push_error("Living Quarters should use a diffuse-only material; found '%s'." % pbr_key)
+			quit(1)
+			return
+	var machine_model_config: Dictionary = world.building_catalog.get_model_config("machine_park")
+	if machine_model_config.get("mesh_path", "") != "res://assets/3D/buildings/machine_park_2/base.obj" or machine_model_config.get("diffuse_texture", "") != "res://assets/3D/buildings/machine_park_2/texture_diffuse.png":
+		push_error("Machine Park should use its new low-poly model and diffuse texture.")
+		quit(1)
+		return
+	var milling_model_config: Dictionary = world.building_catalog.get_model_config("milling_plant")
+	if milling_model_config.get("mesh_path", "") != "res://assets/3D/buildings/milling_plant_2/base.obj" or milling_model_config.get("diffuse_texture", "") != "res://assets/3D/buildings/milling_plant_2/texture_diffuse.png":
+		push_error("Milling Plant should use its new low-poly model and diffuse texture.")
+		quit(1)
+		return
+	for diffuse_only_config: Dictionary in [machine_model_config, milling_model_config]:
+		for pbr_key: String in ["emissive_texture", "normal_texture", "roughness_texture", "metallic_texture"]:
+			if diffuse_only_config.has(pbr_key):
+				push_error("New low-poly buildings should use diffuse-only materials; found '%s'." % pbr_key)
+				quit(1)
+				return
 	if world.building_catalog.get_sprite_source_rect("machine_park", "horizontal").size == Vector2i.ZERO:
 		push_error("Machine Park should have an atlas sprite source rect.")
 		quit(1)
@@ -305,10 +395,16 @@ func _initialize() -> void:
 		push_error("Planet Lander should use the configured 3x3 footprint.")
 		quit(1)
 		return
-	if world.building_catalog.get_model_config("planet_lander_module").get("mesh_path", "") != "res://assets/3D/buildings/planet_lander_module_landed/base.obj":
-		push_error("Planet Lander should use the landed OBJ model after touchdown.")
+	var lander_model_config: Dictionary = world.building_catalog.get_model_config("planet_lander_module")
+	if lander_model_config.get("mesh_path", "") != "res://assets/3D/buildings/planet_lander_module_landed_2/base.obj" or lander_model_config.get("diffuse_texture", "") != "res://assets/3D/buildings/planet_lander_module_landed_2/texture_diffuse.png":
+		push_error("Planet Lander should use the new landed model and diffuse texture after touchdown.")
 		quit(1)
 		return
+	for pbr_key: String in ["emissive_texture", "normal_texture", "roughness_texture", "metallic_texture"]:
+		if lander_model_config.has(pbr_key):
+			push_error("Planet Lander should use a diffuse-only landed material; found '%s'." % pbr_key)
+			quit(1)
+			return
 
 	var unit_layer := world.get_node_or_null("UnitLayer")
 	if unit_layer == null:
@@ -420,6 +516,15 @@ func _initialize() -> void:
 			push_error("Mountain3DLayer should generate normals so sunlight can shade procedural massifs.")
 			quit(1)
 			return
+		var expected_mountain_shadow_setting := (
+			GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+			if root.mountain_cast_shadows
+			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		)
+		if mountain_instance.cast_shadow != expected_mountain_shadow_setting:
+			push_error("Restored mountain shadow casting should match runtime.cfg without a proxy mesh.")
+			quit(1)
+			return
 		if not _mountain_shared_vertices_are_watertight(mountain_vertices, mountain_3d_layer.SUBDIVISIONS):
 			push_error("Adjacent mountain tiles should assign identical heights to shared X/Z vertices.")
 			quit(1)
@@ -440,40 +545,10 @@ func _initialize() -> void:
 			push_error("Interior mountain boost should never exceed the configured safe maximum height.")
 			quit(1)
 			return
-	var forest_count := _count_terrain(world.map_data, 1)
-	if forest_3d_layer.tree_meshes.size() <= 1:
-		push_error("Forest3DLayer should split the tree collection OBJ into multiple tree mesh variants.")
-		quit(1)
-		return
-	var tree_arrays: Array = forest_3d_layer.tree_meshes[0].surface_get_arrays(0)
-	var tree_normals: PackedVector3Array = tree_arrays[Mesh.ARRAY_NORMAL]
-	if tree_normals.is_empty():
-		push_error("Forest3DLayer tree meshes should keep or generate normals for lighting.")
-		quit(1)
-		return
-	if forest_3d_layer.last_cells_processed != forest_count:
-		push_error("Forest3DLayer should process exactly the current forest terrain tiles.")
-		quit(1)
-		return
-	if forest_count > 0 and forest_3d_layer.target_density > 0.0 and forest_3d_layer.get_child_count() <= 0:
-		push_error("Forest3DLayer should create tree multimesh instances when forest terrain exists.")
-		quit(1)
-		return
-	root.tree_density_spin_box.value = 25
-	root.tree_size_spin_box.value = 75
-	root._apply_forest_visual_settings()
-	if not is_equal_approx(forest_3d_layer.target_density, 0.25):
-		push_error("Sandbox Admin tree density control should update Forest3DLayer target density.")
-		quit(1)
-		return
-	if not is_equal_approx(forest_3d_layer.global_tree_scale, 0.75):
-		push_error("Sandbox Admin tree size control should update Forest3DLayer global scale.")
-		quit(1)
-		return
-	if forest_count > 0 and forest_3d_layer.get_child_count() <= 0:
-		push_error("Forest3DLayer should create tree multimesh instances when tree density is above zero.")
-		quit(1)
-		return
+		if mountain_3d_layer.get_child_count() != 1:
+			push_error("The restored mountain renderer should keep its original single-mesh structure.")
+			quit(1)
+			return
 	if root.game_hud_root.scale != Vector2.ONE:
 		push_error("Game HUD should keep stable 1.0 UI scale so font size is viewport-independent.")
 		quit(1)
@@ -571,6 +646,15 @@ func _initialize() -> void:
 		push_error("Planet Lander descent should render the textured flying OBJ model.")
 		quit(1)
 		return
+	var flying_material := flying_model.material_override as StandardMaterial3D
+	if flying_material == null or flying_material.albedo_texture == null or flying_material.normal_enabled or flying_material.normal_texture != null or flying_material.roughness_texture != null or flying_material.metallic_texture != null or flying_material.emission_enabled:
+		push_error("Planet Lander descent should use the new diffuse-only flying model material.")
+		quit(1)
+		return
+	if flying_model.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_ON:
+		push_error("Descending Planet Lander should cast a realtime ground shadow.")
+		quit(1)
+		return
 	var landing_jet_count := 0
 	for child in root.planet_lander_landing.get_children():
 		if child is GPUParticles3D and String(child.name).begins_with("LandingJet"):
@@ -620,17 +704,17 @@ func _initialize() -> void:
 		push_error("Landed Planet Lander model should have a loaded mesh.")
 		quit(1)
 		return
+	if lander_model.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_ON:
+		push_error("Model-backed buildings should participate in the realtime shadow pass.")
+		quit(1)
+		return
 	if lander_model.material_override == null:
 		push_error("Landed Planet Lander should have a texture material override.")
 		quit(1)
 		return
 	var lander_material := lander_model.material_override as StandardMaterial3D
-	if lander_material == null or not lander_material.normal_enabled or lander_material.normal_texture == null:
-		push_error("Planet Lander material should use its configured normal texture.")
-		quit(1)
-		return
-	if lander_material.roughness_texture == null or lander_material.metallic_texture == null:
-		push_error("Planet Lander material should use configured roughness and metallic textures.")
+	if lander_material == null or lander_material.albedo_texture == null or lander_material.normal_enabled or lander_material.normal_texture != null or lander_material.roughness_texture != null or lander_material.metallic_texture != null or lander_material.emission_enabled:
+		push_error("Landed Planet Lander should use its new diffuse-only material.")
 		quit(1)
 		return
 	var space_marines: Array[Dictionary] = []
@@ -926,6 +1010,15 @@ func _initialize() -> void:
 		push_error("Placed Oxygen Extractor should render as one 3D model instance; found %d." % oxygen_models.size())
 		quit(1)
 		return
+	var oxygen_material := oxygen_models[0].material_override as StandardMaterial3D
+	if oxygen_material == null or oxygen_material.albedo_texture == null:
+		push_error("Placed Oxygen Extractor should render with its diffuse texture.")
+		quit(1)
+		return
+	if oxygen_material.normal_enabled or oxygen_material.normal_texture != null or oxygen_material.roughness_texture != null or oxygen_material.metallic_texture != null or oxygen_material.emission_enabled:
+		push_error("Placed Oxygen Extractor should render with a diffuse-only material.")
+		quit(1)
+		return
 	if world.colony_state.get_hq_stored_metal() != hq_metal_before_oxygen - 40:
 		push_error("Oxygen Extractor should spend 40 HQ metal.")
 		quit(1)
@@ -961,10 +1054,28 @@ func _initialize() -> void:
 		return
 
 	var living_tile: Vector2i = _find_buildable_tile(world, "living_quarters")
+	await root._warm_building_assets("living_quarters")
 	root._select_build_tool("building:living_quarters")
 	world.paint_tile(living_tile)
 	if world.colony_state.get_building_count("living_quarters") != 1:
 		push_error("Living quarters construction did not create a colony building.")
+		quit(1)
+		return
+	var living_models: Array[MeshInstance3D] = []
+	for child in building_3d_layer.get_children():
+		if child is MeshInstance3D and String(child.name).begins_with("Building3D_living_quarters_"):
+			living_models.append(child)
+	if living_models.size() != 1:
+		push_error("Placed Living Quarters should render as one 3D model instance; found %d." % living_models.size())
+		quit(1)
+		return
+	var living_material := living_models[0].material_override as StandardMaterial3D
+	if living_material == null or living_material.albedo_texture == null or living_material.normal_enabled or living_material.normal_texture != null or living_material.roughness_texture != null or living_material.metallic_texture != null or living_material.emission_enabled:
+		push_error("Placed Living Quarters should use its new diffuse-only material.")
+		quit(1)
+		return
+	if living_models[0].cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_ON:
+		push_error("Placed Living Quarters should cast realtime directional shadows.")
 		quit(1)
 		return
 	if world.map_data.get_terrain(living_tile) > 1:
@@ -993,6 +1104,11 @@ func _initialize() -> void:
 		push_error("Placed Machine Park should render as one 3D model instance; found %d." % machine_models.size())
 		quit(1)
 		return
+	var machine_material := machine_models[0].material_override as StandardMaterial3D
+	if machine_material == null or machine_material.albedo_texture == null or machine_material.normal_enabled or machine_material.normal_texture != null or machine_material.roughness_texture != null or machine_material.metallic_texture != null or machine_material.emission_enabled:
+		push_error("Placed Machine Park should use its new diffuse-only material.")
+		quit(1)
+		return
 
 	var milling_tile: Vector2i = _find_buildable_tile(world, "milling_plant")
 	var hq_metal_before_milling: int = world.colony_state.get_hq_stored_metal()
@@ -1018,6 +1134,11 @@ func _initialize() -> void:
 			milling_models.append(child)
 	if milling_models.size() != 1:
 		push_error("Placed Milling Plant should render as one 3D model instance; found %d." % milling_models.size())
+		quit(1)
+		return
+	var milling_material := milling_models[0].material_override as StandardMaterial3D
+	if milling_material == null or milling_material.albedo_texture == null or milling_material.normal_enabled or milling_material.normal_texture != null or milling_material.roughness_texture != null or milling_material.metallic_texture != null or milling_material.emission_enabled:
+		push_error("Placed Milling Plant should use its new diffuse-only material.")
 		quit(1)
 		return
 

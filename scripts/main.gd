@@ -6,9 +6,9 @@ const IsoCamera := preload("res://scripts/iso_camera.gd")
 const IsoBuilding3DLayer := preload("res://scripts/iso_building_3d_layer.gd")
 const IsoBuildingPreview3DLayer := preload("res://scripts/iso_building_preview_3d_layer.gd")
 const IsoCamera3D := preload("res://scripts/iso_camera_3d.gd")
-const IsoForest3DLayer := preload("res://scripts/iso_forest_3d_layer.gd")
 const IsoMountain3DLayer := preload("res://scripts/iso_mountain_3d_layer.gd")
 const IsoRoad3DLayer := preload("res://scripts/iso_road_3d_layer.gd")
+const IsoSurfaceDetail3DLayer := preload("res://scripts/iso_surface_detail_3d_layer.gd")
 const IsoTerrain3DLayer := preload("res://scripts/iso_terrain_3d_layer.gd")
 const IsoUnit3DLayer := preload("res://scripts/iso_unit_3d_layer.gd")
 const IsoWorld := preload("res://scripts/iso_world.gd")
@@ -21,16 +21,20 @@ const HUD_MARGIN := 16.0
 const UI_FONT_SIZE := 18
 const UI_SMALL_FONT_SIZE := 16
 const START_CAMERA_ZOOM := 2.0
-const DEFAULT_TREE_DENSITY_PERCENT := 100
-const DEFAULT_TREE_SIZE_PERCENT := 130
 const RUNTIME_CONFIG_PATH := "res://config/runtime.cfg"
 const START_SCREEN_BACKGROUND_PATH := "res://assets/start_screen_background.png"
 const INTRO_MUSIC_PATH := "res://assets/audio/music/intro_dystopian_nightmare.mp3"
 const GAME_MUSIC_PATH := "res://assets/audio/music/empty_orbit_signal.mp3"
 const MUSIC_CROSSFADE_SECONDS := 1.5
 const SUN_ROTATION_DEGREES := Vector3(-73.0, -28.0, 0.0)
+const SUN_ORBIT_DEGREES_PER_SECOND := 2.0
 const SUN_LIGHT_COLOR := Color8(255, 242, 216)
 const SUN_LIGHT_ENERGY := 1.12
+const SUN_SHADOW_MAX_DISTANCE := 48.0
+const SUN_SHADOW_OPACITY := 0.82
+const SUN_SHADOW_BLUR := 0.15
+const SUN_SHADOW_BIAS := 0.008
+const SUN_SHADOW_NORMAL_BIAS := 0.20
 const AMBIENT_LIGHT_COLOR := Color8(64, 72, 67)
 const AMBIENT_LIGHT_ENERGY := 0.56
 const MODEL_RESOURCE_KEYS: Array[String] = ["mesh_path", "diffuse_texture", "normal_texture", "roughness_texture", "metallic_texture"]
@@ -42,7 +46,7 @@ var world: IsoWorld
 var camera: IsoCamera
 var camera_3d: IsoCamera3D
 var terrain_3d_layer: IsoTerrain3DLayer
-var forest_3d_layer: IsoForest3DLayer
+var surface_detail_3d_layer: IsoSurfaceDetail3DLayer
 var mountain_3d_layer: IsoMountain3DLayer
 var road_3d_layer: IsoRoad3DLayer
 var building_3d_layer: IsoBuilding3DLayer
@@ -100,13 +104,24 @@ var clearing_noise_spin_box: SpinBox
 var mountain_percent_spin_box: SpinBox
 var min_build_spin_box: SpinBox
 var max_build_spin_box: SpinBox
-var tree_density_spin_box: SpinBox
-var tree_size_spin_box: SpinBox
 var grid_render_check_box: CheckBox
 var is_dev_mode: bool = false
 var admin_panel_visible: bool = false
 var music_enabled: bool = true
 var music_volume_db: float = -10.0
+var sun_rotation_degrees: Vector3 = SUN_ROTATION_DEGREES
+var sun_orbit_enabled: bool = false
+var sun_orbit_degrees_per_second: float = SUN_ORBIT_DEGREES_PER_SECOND
+var sun_shadow_enabled: bool = true
+var sun_shadow_blur: float = SUN_SHADOW_BLUR
+var sun_shadow_pssm_splits: int = 4
+var sun_shadow_max_distance: float = SUN_SHADOW_MAX_DISTANCE
+var sun_shadow_opacity: float = SUN_SHADOW_OPACITY
+var sun_shadow_bias: float = SUN_SHADOW_BIAS
+var sun_shadow_normal_bias: float = SUN_SHADOW_NORMAL_BIAS
+var sun_shadow_fade_start: float = 0.9
+var sun_shadow_blend_splits: bool = false
+var mountain_cast_shadows: bool = false
 var _camera_initialized: bool = false
 var _layout_queued: bool = false
 var _performance_update_elapsed: float = 0.0
@@ -138,7 +153,10 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
-	if app_state != AppState.IN_GAME or performance_label == null:
+	if app_state != AppState.IN_GAME:
+		return
+	_advance_sun_orbit(delta)
+	if performance_label == null:
 		return
 
 	_sync_terrain_3d_camera()
@@ -168,6 +186,14 @@ func _process(delta: float) -> void:
 		object_count,
 		diagnostics,
 	]
+
+
+func _advance_sun_orbit(delta: float) -> void:
+	if not sun_orbit_enabled or sun_light == null or not sun_light.visible:
+		return
+	var next_rotation := sun_light.rotation_degrees
+	next_rotation.y = fposmod(next_rotation.y + sun_orbit_degrees_per_second * delta, 360.0)
+	sun_light.rotation_degrees = next_rotation
 
 
 func _build_background() -> void:
@@ -259,6 +285,24 @@ func _load_runtime_config() -> void:
 		return
 	music_enabled = bool(config.get_value("audio", "music_enabled", true))
 	music_volume_db = float(config.get_value("audio", "music_volume_db", -10.0))
+	sun_rotation_degrees = Vector3(
+		float(config.get_value("lighting", "sun_pitch_degrees", SUN_ROTATION_DEGREES.x)),
+		float(config.get_value("lighting", "sun_yaw_degrees", SUN_ROTATION_DEGREES.y)),
+		float(config.get_value("lighting", "sun_roll_degrees", SUN_ROTATION_DEGREES.z))
+	)
+	sun_orbit_enabled = bool(config.get_value("lighting", "sun_orbit_enabled", false))
+	sun_orbit_degrees_per_second = clampf(float(config.get_value("lighting", "sun_orbit_degrees_per_second", SUN_ORBIT_DEGREES_PER_SECOND)), -60.0, 60.0)
+	sun_shadow_enabled = bool(config.get_value("lighting", "shadow_enabled", true))
+	sun_shadow_blur = clampf(float(config.get_value("lighting", "shadow_blur", SUN_SHADOW_BLUR)), 0.0, 10.0)
+	var configured_split_count := int(config.get_value("lighting", "shadow_pssm_splits", 4))
+	sun_shadow_pssm_splits = configured_split_count if configured_split_count in [1, 2, 4] else 4
+	sun_shadow_max_distance = clampf(float(config.get_value("lighting", "shadow_max_distance", SUN_SHADOW_MAX_DISTANCE)), 4.0, 256.0)
+	sun_shadow_opacity = clampf(float(config.get_value("lighting", "shadow_opacity", SUN_SHADOW_OPACITY)), 0.0, 1.0)
+	sun_shadow_bias = clampf(float(config.get_value("lighting", "shadow_bias", SUN_SHADOW_BIAS)), 0.0, 1.0)
+	sun_shadow_normal_bias = clampf(float(config.get_value("lighting", "shadow_normal_bias", SUN_SHADOW_NORMAL_BIAS)), 0.0, 10.0)
+	sun_shadow_fade_start = clampf(float(config.get_value("lighting", "shadow_fade_start", 0.9)), 0.0, 1.0)
+	sun_shadow_blend_splits = bool(config.get_value("lighting", "shadow_blend_splits", false))
+	mountain_cast_shadows = bool(config.get_value("lighting", "mountain_cast_shadows", false))
 
 
 func _build_ui() -> void:
@@ -478,10 +522,6 @@ func _build_sandbox_setup() -> void:
 	visuals_tab.add_theme_constant_override("separation", 8)
 	tabs.add_child(visuals_tab)
 
-	tree_density_spin_box = _add_admin_spin_box(visuals_tab, "Tree density %", 0, 100, DEFAULT_TREE_DENSITY_PERCENT)
-	tree_density_spin_box.value_changed.connect(_on_forest_visual_settings_changed)
-	tree_size_spin_box = _add_admin_spin_box(visuals_tab, "Tree size %", 25, 250, DEFAULT_TREE_SIZE_PERCENT)
-	tree_size_spin_box.value_changed.connect(_on_forest_visual_settings_changed)
 	grid_render_check_box = CheckBox.new()
 	grid_render_check_box.text = "Show tile grid"
 	grid_render_check_box.button_pressed = true
@@ -978,12 +1018,11 @@ func _ensure_world() -> void:
 	_apply_grid_rendering_setting()
 	await get_tree().process_frame
 
-	_set_loading_progress(38.0, "Planting alien wilderness...")
-	forest_3d_layer = IsoForest3DLayer.new()
-	forest_3d_layer.name = "Forest3DLayer"
-	add_child(forest_3d_layer)
-	forest_3d_layer.set_map_data(world.map_data)
-	_apply_forest_visual_settings()
+	_set_loading_progress(34.0, "Scattering planetary surface details...")
+	surface_detail_3d_layer = IsoSurfaceDetail3DLayer.new()
+	surface_detail_3d_layer.name = "SurfaceDetail3DLayer"
+	add_child(surface_detail_3d_layer)
+	surface_detail_3d_layer.set_map_data(world.map_data)
 	await get_tree().process_frame
 
 	_set_loading_progress(48.0, "Raising mountain massifs...")
@@ -992,6 +1031,7 @@ func _ensure_world() -> void:
 	mountain_3d_layer.name = "Mountain3DLayer"
 	add_child(mountain_3d_layer)
 	mountain_3d_layer.set_map_data(world.map_data)
+	_apply_mountain_shadow_setting()
 	_set_loading_progress(72.0, "Laying infrastructure...")
 	await get_tree().process_frame
 
@@ -1041,6 +1081,7 @@ func _ensure_world() -> void:
 	camera.enabled = true
 	camera.set_external_pan_enabled(true)
 	camera.pan_dragged.connect(_on_camera_pan_dragged)
+	camera.keyboard_pan_requested.connect(_on_camera_keyboard_pan_requested)
 	camera.view_rotation_dragged.connect(_on_camera_view_rotation_dragged)
 	add_child(camera)
 
@@ -1068,8 +1109,8 @@ func _set_world_active(active: bool) -> void:
 		camera_3d.visible = active
 	if terrain_3d_layer != null:
 		terrain_3d_layer.visible = active
-	if forest_3d_layer != null:
-		forest_3d_layer.visible = active
+	if surface_detail_3d_layer != null:
+		surface_detail_3d_layer.visible = active
 	if mountain_3d_layer != null:
 		mountain_3d_layer.visible = active
 	if road_3d_layer != null:
@@ -1112,9 +1153,31 @@ func _build_world_lighting() -> void:
 		sun_light.name = "SunLight"
 		sun_light.light_color = SUN_LIGHT_COLOR
 		sun_light.light_energy = SUN_LIGHT_ENERGY
-		sun_light.rotation_degrees = SUN_ROTATION_DEGREES
-		sun_light.shadow_enabled = false
+		sun_light.light_angular_distance = 0.0
+		sun_light.rotation_degrees = sun_rotation_degrees
+		sun_light.shadow_enabled = sun_shadow_enabled
+		sun_light.shadow_opacity = sun_shadow_opacity
+		sun_light.shadow_blur = sun_shadow_blur
+		sun_light.shadow_bias = sun_shadow_bias
+		sun_light.shadow_normal_bias = sun_shadow_normal_bias
+		sun_light.directional_shadow_mode = _directional_shadow_mode()
+		sun_light.directional_shadow_max_distance = sun_shadow_max_distance
+		sun_light.directional_shadow_split_1 = 0.08
+		sun_light.directional_shadow_split_2 = 0.2
+		sun_light.directional_shadow_split_3 = 0.45
+		sun_light.directional_shadow_blend_splits = sun_shadow_blend_splits
+		sun_light.directional_shadow_fade_start = sun_shadow_fade_start
 		add_child(sun_light)
+
+
+func _directional_shadow_mode() -> DirectionalLight3D.ShadowMode:
+	match sun_shadow_pssm_splits:
+		1:
+			return DirectionalLight3D.SHADOW_ORTHOGONAL
+		2:
+			return DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+		_:
+			return DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 
 
 func _apply_sandbox_settings_to_world() -> void:
@@ -1136,11 +1199,11 @@ func _apply_sandbox_settings_to_world() -> void:
 	if terrain_3d_layer != null:
 		terrain_3d_layer.set_map_data(world.map_data)
 		_apply_grid_rendering_setting()
-	if forest_3d_layer != null:
-		forest_3d_layer.set_map_data(world.map_data)
-		_apply_forest_visual_settings()
+	if surface_detail_3d_layer != null:
+		surface_detail_3d_layer.set_map_data(world.map_data)
 	if mountain_3d_layer != null:
 		mountain_3d_layer.set_map_data(world.map_data)
+		_apply_mountain_shadow_setting()
 	if road_3d_layer != null:
 		road_3d_layer.set_map_data(world.map_data)
 	if building_3d_layer != null:
@@ -1279,10 +1342,6 @@ func _change_role_assignment(role: String, delta: int) -> void:
 		world.change_infantry(delta)
 
 
-func _on_forest_visual_settings_changed(_value: float) -> void:
-	_apply_forest_visual_settings()
-
-
 func _on_grid_rendering_toggled(_enabled: bool) -> void:
 	_apply_grid_rendering_setting()
 
@@ -1291,15 +1350,6 @@ func _apply_grid_rendering_setting() -> void:
 	if terrain_3d_layer == null or grid_render_check_box == null:
 		return
 	terrain_3d_layer.set_grid_visible(grid_render_check_box.button_pressed)
-
-
-func _apply_forest_visual_settings() -> void:
-	if forest_3d_layer == null or tree_density_spin_box == null or tree_size_spin_box == null:
-		return
-	forest_3d_layer.set_visual_tuning(
-		float(tree_size_spin_box.value) / 100.0,
-		float(tree_density_spin_box.value) / 100.0
-	)
 
 
 func _sync_game_mode_ui() -> void:
@@ -1516,6 +1566,25 @@ func _on_camera_pan_dragged(relative_pixels: Vector2, previous_position: Vector2
 	_sync_terrain_3d_camera()
 
 
+func _on_camera_keyboard_pan_requested(viewport_delta: Vector2) -> void:
+	if camera == null:
+		return
+	if camera_3d == null or input_controller == null or world == null or not camera_3d.current or not camera_3d.visible:
+		camera.position += viewport_delta / camera.zoom.x
+		return
+
+	# Interpret WASD/arrow input in viewport space, then project that direction
+	# onto the ground plane. This keeps "up" pointing toward the top of the
+	# screen regardless of the camera's current yaw and tilt.
+	var viewport_center := Vector2(get_viewport_rect().size) * 0.5
+	var center_map_position := input_controller.viewport_to_map_position(viewport_center)
+	var offset_map_position := input_controller.viewport_to_map_position(viewport_center + viewport_delta)
+	var map_delta := offset_map_position - center_map_position
+	var next_camera_map_position := _iso_screen_to_map_position(camera.position) + map_delta
+	camera.position = world.map_position_to_screen(next_camera_map_position)
+	_sync_terrain_3d_camera()
+
+
 func _iso_screen_to_map_position(screen_position: Vector2) -> Vector2:
 	var map_x := (screen_position.y / 8.0 + screen_position.x / 16.0) * 0.5
 	var map_y := (screen_position.y / 8.0 - screen_position.x / 16.0) * 0.5
@@ -1526,7 +1595,7 @@ func _on_world_tile_changed(tile: Vector2i, terrain_name: String) -> void:
 	if status_label == null or world == null:
 		return
 
-	status_label.text = "Tile: %s,%s  Terrain: %s  Sprite tile: 32x16\n%s" % [
+	status_label.text = "Tile: %s,%s  Terrain: %s  Ground: chunked 3D\n%s" % [
 		tile.x,
 		tile.y,
 		terrain_name,
@@ -1544,11 +1613,24 @@ func _on_world_terrain_changed() -> void:
 		return
 	if terrain_3d_layer != null:
 		terrain_3d_layer.set_map_data(world.map_data)
-	if forest_3d_layer != null:
-		forest_3d_layer.set_map_data(world.map_data)
-		_apply_forest_visual_settings()
+	if surface_detail_3d_layer != null:
+		surface_detail_3d_layer.set_map_data(world.map_data)
 	if mountain_3d_layer != null:
 		mountain_3d_layer.set_map_data(world.map_data)
+		_apply_mountain_shadow_setting()
+
+
+func _apply_mountain_shadow_setting() -> void:
+	if mountain_3d_layer == null:
+		return
+	var shadow_setting := (
+		GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		if mountain_cast_shadows
+		else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	)
+	for child in mountain_3d_layer.get_children():
+		if child is GeometryInstance3D:
+			(child as GeometryInstance3D).cast_shadow = shadow_setting
 
 
 func _on_world_buildings_changed() -> void:

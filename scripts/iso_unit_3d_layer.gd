@@ -133,6 +133,7 @@ func _instance_for_unit(unit_id: int, variant: String) -> Node3D:
 			return null
 		character.name = "Unit3D_%s_%s" % [variant, unit_id]
 		_apply_material_to_meshes(character, _material_for_variant(variant))
+		_set_shadow_casting_recursive(character, GeometryInstance3D.SHADOW_CASTING_SETTING_ON)
 		_configure_space_marine_animation(character)
 		add_child(character)
 		instance_by_unit_id[unit_id] = character
@@ -146,10 +147,18 @@ func _instance_for_unit(unit_id: int, variant: String) -> Node3D:
 	instance.name = "Unit3D_%s_%s" % [variant, unit_id]
 	instance.mesh = mesh
 	instance.material_override = _material_for_variant(variant)
+	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	add_child(instance)
 	instance_by_unit_id[unit_id] = instance
 	variant_by_unit_id[unit_id] = variant
 	return instance
+
+
+func _set_shadow_casting_recursive(node: Node, setting: GeometryInstance3D.ShadowCastingSetting) -> void:
+	if node is GeometryInstance3D:
+		(node as GeometryInstance3D).cast_shadow = setting
+	for child in node.get_children():
+		_set_shadow_casting_recursive(child, setting)
 
 
 func _remove_instance(unit_id: int) -> void:

@@ -2,11 +2,8 @@ extends Node3D
 
 signal landed
 
-const FLYING_MESH_PATH := "res://assets/3D/buildings/planet_lander_module_flying/base.obj"
-const FLYING_DIFFUSE_PATH := "res://assets/3D/buildings/planet_lander_module_flying/texture_diffuse.png"
-const FLYING_NORMAL_PATH := "res://assets/3D/buildings/planet_lander_module_flying/texture_normal.png"
-const FLYING_ROUGHNESS_PATH := "res://assets/3D/buildings/planet_lander_module_flying/texture_roughness.png"
-const FLYING_METALLIC_PATH := "res://assets/3D/buildings/planet_lander_module_flying/texture_metallic.png"
+const FLYING_MESH_PATH := "res://assets/3D/buildings/planet_lander_module_flying_2/base.obj"
+const FLYING_DIFFUSE_PATH := "res://assets/3D/buildings/planet_lander_module_flying_2/texture_diffuse.png"
 
 const LANDING_DURATION := 6.0
 const START_HEIGHT := 14.0
@@ -113,6 +110,7 @@ func _build_flying_model() -> void:
 		return
 	_flying_model = MeshInstance3D.new()
 	_flying_model.name = "PlanetLanderFlyingModel"
+	_flying_model.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	_flying_model.mesh = mesh
 	_flying_model.material_override = _build_flying_material()
 	_flying_model.scale = MODEL_SCALE
@@ -126,13 +124,6 @@ func _build_flying_material() -> StandardMaterial3D:
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	if ResourceLoader.exists(FLYING_DIFFUSE_PATH):
 		material.albedo_texture = load(FLYING_DIFFUSE_PATH) as Texture2D
-	if ResourceLoader.exists(FLYING_NORMAL_PATH):
-		material.normal_enabled = true
-		material.normal_texture = load(FLYING_NORMAL_PATH) as Texture2D
-	if ResourceLoader.exists(FLYING_ROUGHNESS_PATH):
-		material.roughness_texture = load(FLYING_ROUGHNESS_PATH) as Texture2D
-	if ResourceLoader.exists(FLYING_METALLIC_PATH):
-		material.metallic_texture = load(FLYING_METALLIC_PATH) as Texture2D
 	return material
 
 
@@ -176,6 +167,7 @@ func _build_engine_effects() -> void:
 
 	for engine_index in ENGINE_OFFSETS.size():
 		var outer_flame := MeshInstance3D.new()
+		outer_flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		outer_flame.name = "LandingFlameOuter%d" % (engine_index + 1)
 		outer_flame.mesh = outer_flame_mesh
 		outer_flame.position = ENGINE_OFFSETS[engine_index] + Vector3(0.0, -0.82, 0.0)
@@ -183,6 +175,7 @@ func _build_engine_effects() -> void:
 		_engine_flames.append(outer_flame)
 
 		var inner_flame := MeshInstance3D.new()
+		inner_flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		inner_flame.name = "LandingFlameInner%d" % (engine_index + 1)
 		inner_flame.mesh = inner_flame_mesh
 		inner_flame.position = ENGINE_OFFSETS[engine_index] + Vector3(0.0, -0.52, 0.0)

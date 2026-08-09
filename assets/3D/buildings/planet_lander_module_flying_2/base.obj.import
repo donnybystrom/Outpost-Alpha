@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://b4e8wcpyjgasg"
+path="res://.godot/imported/base.obj-4c0bf6415703546c26bdc2541811c2bb.mesh"
+
+[deps]
+
+files=["res://.godot/imported/base.obj-4c0bf6415703546c26bdc2541811c2bb.mesh"]
+
+source_file="res://assets/3D/buildings/planet_lander_module_flying_2/base.obj"
+dest_files=["res://.godot/imported/base.obj-4c0bf6415703546c26bdc2541811c2bb.mesh", "res://.godot/imported/base.obj-4c0bf6415703546c26bdc2541811c2bb.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false
