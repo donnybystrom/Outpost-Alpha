@@ -1,6 +1,8 @@
 extends Node3D
 
 const BuildingCatalog := preload("res://scripts/building_catalog.gd")
+const Building3DLayer := preload("res://scripts/iso_building_3d_layer.gd")
+const BUILDING_VISUAL_LAYER_MASK := 1 << 1
 
 const PREVIEW_ALPHA_VALID := 0.52
 const PREVIEW_ALPHA_INVALID := 0.34
@@ -82,6 +84,7 @@ func set_preview(building_type: String, origin: Vector2i, orientation: String, v
 	if preview_instance == null:
 		preview_instance = MeshInstance3D.new()
 		preview_instance.name = "BuildingPlacementPreview3D"
+		preview_instance.layers = BUILDING_VISUAL_LAYER_MASK
 		preview_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(preview_instance)
 
@@ -101,6 +104,11 @@ func _mesh_for_building(building_type: String, model_config: Dictionary) -> Mesh
 	var mesh := load(mesh_path) as Mesh
 	if mesh == null:
 		return null
+	if String(model_config.get("normal_texture", "")).is_empty():
+		mesh = Building3DLayer.smooth_mesh_normals(
+			mesh,
+			float(model_config.get("smooth_normal_angle_degrees", Building3DLayer.DEFAULT_SMOOTH_NORMAL_ANGLE_DEGREES))
+		)
 	mesh_by_type[building_type] = mesh
 	return mesh
 
@@ -115,6 +123,7 @@ func _preview_material_for_building(building_type: String, model_config: Diction
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	material.roughness = 1.0
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.disable_receive_shadows = true
 
 	var diffuse_path: String = model_config.get("diffuse_texture", "")
 	if not diffuse_path.is_empty() and ResourceLoader.exists(diffuse_path):

@@ -3,6 +3,13 @@ extends Node3D
 const BuildingCatalog := preload("res://scripts/building_catalog.gd")
 const ColonyState := preload("res://scripts/colony_state.gd")
 
+# Keep rendered buildings on their own visual layer so a cheap, shadowless
+# fill light can soften their imported normals without touching terrain,
+# mountains, units, or the world's shadow pass.
+const BUILDING_VISUAL_LAYER_MASK := 1 << 1
+const DEFAULT_SMOOTH_NORMAL_ANGLE_DEGREES := 52.0
+const NORMAL_POSITION_QUANTIZATION := 10000.0
+
 var colony_state: ColonyState
 var building_catalog = BuildingCatalog.new()
 var mesh_by_type := {}
@@ -96,6 +103,7 @@ func _add_model_instance(building: Dictionary) -> bool:
 	instance.name = "Building3D_%s_%s" % [building_type, int(building.get("id", 0))]
 	instance.mesh = mesh
 	instance.material_override = _material_for_building(building_type, model_config)
+	instance.layers = BUILDING_VISUAL_LAYER_MASK
 	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	instance.transform = _building_transform(building, model_config)
 	add_child(instance)
@@ -113,8 +121,70 @@ func _mesh_for_building(building_type: String, model_config: Dictionary) -> Mesh
 	if mesh == null:
 		push_warning("Could not load 3D mesh for building '%s': %s" % [building_type, mesh_path])
 		return null
+	# The generated OBJ assets contain many split per-triangle normals. Rebuild
+	# only the normal arrays with an angle threshold, once per cached model, to
+	# keep panel edges hard while removing triangulation from continuous shells.
+	if String(model_config.get("normal_texture", "")).is_empty():
+		mesh = smooth_mesh_normals(
+			mesh,
+			float(model_config.get("smooth_normal_angle_degrees", DEFAULT_SMOOTH_NORMAL_ANGLE_DEGREES))
+		)
 	mesh_by_type[building_type] = mesh
 	return mesh
+
+
+static func smooth_mesh_normals(source_mesh: Mesh, angle_degrees: float) -> Mesh:
+	if source_mesh == null or source_mesh.get_blend_shape_count() > 0:
+		return source_mesh
+	var smoothed_mesh := ArrayMesh.new()
+	var cosine_threshold := cos(deg_to_rad(clampf(angle_degrees, 0.0, 180.0)))
+
+	for surface_index in source_mesh.get_surface_count():
+		var arrays := source_mesh.surface_get_arrays(surface_index)
+		if arrays.size() != Mesh.ARRAY_MAX:
+			return source_mesh
+		var vertices := arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array
+		var normals := arrays[Mesh.ARRAY_NORMAL] as PackedVector3Array
+		if vertices.is_empty() or normals.size() != vertices.size():
+			return source_mesh
+
+		var indices_by_position := {}
+		for vertex_index in vertices.size():
+			var vertex := vertices[vertex_index]
+			var position_key := Vector3i(
+				roundi(vertex.x * NORMAL_POSITION_QUANTIZATION),
+				roundi(vertex.y * NORMAL_POSITION_QUANTIZATION),
+				roundi(vertex.z * NORMAL_POSITION_QUANTIZATION)
+			)
+			var matching_indices: Array = indices_by_position.get(position_key, [])
+			matching_indices.append(vertex_index)
+			indices_by_position[position_key] = matching_indices
+
+		var rebuilt_normals := normals.duplicate()
+		for matching_indices: Array in indices_by_position.values():
+			if matching_indices.size() < 2:
+				continue
+			for vertex_index: int in matching_indices:
+				var reference_normal := normals[vertex_index].normalized()
+				var normal_sum := Vector3.ZERO
+				for matching_index: int in matching_indices:
+					var candidate_normal := normals[matching_index].normalized()
+					if reference_normal.dot(candidate_normal) >= cosine_threshold:
+						normal_sum += candidate_normal
+				if not normal_sum.is_zero_approx():
+					rebuilt_normals[vertex_index] = normal_sum.normalized()
+		arrays[Mesh.ARRAY_NORMAL] = rebuilt_normals
+
+		var next_surface_index := smoothed_mesh.get_surface_count()
+		smoothed_mesh.add_surface_from_arrays(
+			source_mesh.surface_get_primitive_type(surface_index),
+			arrays
+		)
+		smoothed_mesh.surface_set_material(next_surface_index, source_mesh.surface_get_material(surface_index))
+		smoothed_mesh.surface_set_name(next_surface_index, source_mesh.surface_get_name(surface_index))
+
+	smoothed_mesh.resource_name = "%s_SmoothByAngle" % source_mesh.resource_name
+	return smoothed_mesh
 
 
 func _material_for_building(building_type: String, model_config: Dictionary) -> StandardMaterial3D:
@@ -125,6 +195,7 @@ func _material_for_building(building_type: String, model_config: Dictionary) -> 
 	material.albedo_color = Color.WHITE
 	material.roughness = 1.0
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.disable_receive_shadows = true
 
 	var diffuse_path: String = model_config.get("diffuse_texture", "")
 	if not diffuse_path.is_empty() and ResourceLoader.exists(diffuse_path):

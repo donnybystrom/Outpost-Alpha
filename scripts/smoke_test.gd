@@ -238,7 +238,7 @@ func _initialize() -> void:
 		var terrain_instance := terrain_3d_layer.get_child(0) as MeshInstance3D
 		var terrain_material := terrain_instance.material_override as ShaderMaterial
 		if terrain_material == null or terrain_material.shader == null:
-			push_error("3D terrain chunks should share the world-space biome shader.")
+			push_error("3D terrain chunks should share the baked-surface shader.")
 			quit(1)
 			return
 		if terrain_instance.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
@@ -251,7 +251,7 @@ func _initialize() -> void:
 		quit(1)
 		return
 	if terrain_3d_layer.biome_texture == null or terrain_3d_layer.ecology_texture == null:
-		push_error("Terrain3DLayer should upload biome and ecology mask fields for blended world-space rendering.")
+		push_error("Terrain3DLayer should retain its generated biome and ecology fields for surface baking.")
 		quit(1)
 		return
 	if surface_detail_3d_layer.meshes.size() < 4 or surface_detail_3d_layer.last_placement_count <= 0:
@@ -653,6 +653,10 @@ func _initialize() -> void:
 		return
 	if flying_model.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_ON:
 		push_error("Descending Planet Lander should cast a realtime ground shadow.")
+		quit(1)
+		return
+	if flying_model.layers != IsoBuilding3DLayer.BUILDING_VISUAL_LAYER_MASK or not flying_material.disable_receive_shadows:
+		push_error("Descending Planet Lander should use the same softened building-lighting path as landed models.")
 		quit(1)
 		return
 	var landing_jet_count := 0

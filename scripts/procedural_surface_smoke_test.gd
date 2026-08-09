@@ -33,21 +33,26 @@ func _initialize() -> void:
 		_fail("A flat terrain chunk should need one quad, not one mesh per tile.")
 		return
 	if not first_chunk.material_override is ShaderMaterial:
-		_fail("Ground chunks should use the shared world-space biome shader.")
+		_fail("Ground chunks should use the shared baked-surface shader.")
 		return
 	var terrain_shader_code: String = (first_chunk.material_override as ShaderMaterial).shader.code
-	if not terrain_shader_code.contains("void light()") or not terrain_shader_code.contains("ATTENUATION"):
-		_fail("Ground lighting should preserve Godot shadow attenuation instead of relying on unshadowed emission.")
+	if terrain_layer.baked_albedo_texture == null or terrain_layer.last_surface_bake_usec <= 0:
+		_fail("Ground appearance should be baked once into an albedo texture during map loading.")
 		return
-	if terrain_layer.geology_texture == null or not terrain_shader_code.contains("geology_map") or not terrain_shader_code.contains("domain_warp"):
-		_fail("Ground should blend domain-warped macro geology and mountain-edge fields in world space.")
+	var expected_bake_size := Vector2i(
+		mini(map_data.size.x * terrain_layer.SURFACE_TEXELS_PER_TILE, terrain_layer.MAX_SURFACE_TEXTURE_SIZE),
+		mini(map_data.size.y * terrain_layer.SURFACE_TEXELS_PER_TILE, terrain_layer.MAX_SURFACE_TEXTURE_SIZE)
+	)
+	if terrain_layer.baked_texture_size != expected_bake_size:
+		_fail("The baked ground texture should preserve its configured high-resolution texel density.")
 		return
-	if terrain_shader_code.contains("crater_pattern") or not terrain_shader_code.contains("surface_height") or not terrain_shader_code.contains("world_height_gradient"):
-		_fail("Dense-atmosphere ground should use derivative bump detail without procedural impact craters.")
+	print("surface_bake_size=%s bake_ms=%.2f" % [terrain_layer.baked_texture_size, float(terrain_layer.last_surface_bake_usec) / 1000.0])
+	if not terrain_shader_code.contains("baked_albedo_map") or not terrain_shader_code.contains("ATTENUATION"):
+		_fail("Runtime ground rendering should sample one baked texture and receive realtime cast shadows.")
 		return
-	for filter_name in ["dust_filter", "bedrock_filter", "wind_filter", "fracture_filter"]:
-		if not terrain_shader_code.contains(filter_name):
-			_fail("Ground shader is missing continuous surface filter: %s" % filter_name)
+	for forbidden_runtime_work in ["value_noise", "fbm", "domain_warp", "surface_height", "world_height_gradient", "geology_map", "NORMAL =", "ROUGHNESS ="]:
+		if terrain_shader_code.contains(forbidden_runtime_work):
+			_fail("Baked ground shader still performs runtime procedural work: %s" % forbidden_runtime_work)
 			return
 	terrain_layer.set_grid_visible(false)
 	if terrain_layer.grid_visible or terrain_layer.get_child_count() != expected_chunks:

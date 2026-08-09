@@ -2,6 +2,8 @@ extends Node3D
 
 signal landed
 
+const Building3DLayer := preload("res://scripts/iso_building_3d_layer.gd")
+
 const FLYING_MESH_PATH := "res://assets/3D/buildings/planet_lander_module_flying_2/base.obj"
 const FLYING_DIFFUSE_PATH := "res://assets/3D/buildings/planet_lander_module_flying_2/texture_diffuse.png"
 
@@ -108,8 +110,13 @@ func _build_flying_model() -> void:
 	if mesh == null:
 		push_warning("Could not load Planet Lander flying mesh: %s" % FLYING_MESH_PATH)
 		return
+	mesh = Building3DLayer.smooth_mesh_normals(
+		mesh,
+		Building3DLayer.DEFAULT_SMOOTH_NORMAL_ANGLE_DEGREES
+	)
 	_flying_model = MeshInstance3D.new()
 	_flying_model.name = "PlanetLanderFlyingModel"
+	_flying_model.layers = Building3DLayer.BUILDING_VISUAL_LAYER_MASK
 	_flying_model.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	_flying_model.mesh = mesh
 	_flying_model.material_override = _build_flying_material()
@@ -122,6 +129,7 @@ func _build_flying_material() -> StandardMaterial3D:
 	material.albedo_color = Color.WHITE
 	material.roughness = 1.0
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.disable_receive_shadows = true
 	if ResourceLoader.exists(FLYING_DIFFUSE_PATH):
 		material.albedo_texture = load(FLYING_DIFFUSE_PATH) as Texture2D
 	return material

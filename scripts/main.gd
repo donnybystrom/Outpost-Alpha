@@ -26,7 +26,7 @@ const START_SCREEN_BACKGROUND_PATH := "res://assets/start_screen_background.png"
 const INTRO_MUSIC_PATH := "res://assets/audio/music/intro_dystopian_nightmare.mp3"
 const GAME_MUSIC_PATH := "res://assets/audio/music/empty_orbit_signal.mp3"
 const MUSIC_CROSSFADE_SECONDS := 1.5
-const SUN_ROTATION_DEGREES := Vector3(-73.0, -28.0, 0.0)
+const SUN_ROTATION_DEGREES := Vector3(-48.0, -28.0, 0.0)
 const SUN_ORBIT_DEGREES_PER_SECOND := 2.0
 const SUN_LIGHT_COLOR := Color8(255, 242, 216)
 const SUN_LIGHT_ENERGY := 1.12
@@ -35,6 +35,9 @@ const SUN_SHADOW_OPACITY := 0.82
 const SUN_SHADOW_BLUR := 0.15
 const SUN_SHADOW_BIAS := 0.008
 const SUN_SHADOW_NORMAL_BIAS := 0.20
+const BUILDING_LIGHT_ROTATION_DEGREES := Vector3(-58.0, 132.0, 0.0)
+const BUILDING_LIGHT_COLOR := Color8(205, 216, 224)
+const BUILDING_LIGHT_ENERGY := 0.42
 const AMBIENT_LIGHT_COLOR := Color8(64, 72, 67)
 const AMBIENT_LIGHT_ENERGY := 0.56
 const MODEL_RESOURCE_KEYS: Array[String] = ["mesh_path", "diffuse_texture", "normal_texture", "roughness_texture", "metallic_texture"]
@@ -54,6 +57,7 @@ var building_preview_3d_layer: IsoBuildingPreview3DLayer
 var unit_3d_layer: IsoUnit3DLayer
 var planet_lander_landing: PlanetLanderLandingSequence3D
 var sun_light: DirectionalLight3D
+var building_light: DirectionalLight3D
 var world_environment: WorldEnvironment
 var input_controller: MapInputController
 var background: CanvasLayer
@@ -122,6 +126,9 @@ var sun_shadow_normal_bias: float = SUN_SHADOW_NORMAL_BIAS
 var sun_shadow_fade_start: float = 0.9
 var sun_shadow_blend_splits: bool = false
 var mountain_cast_shadows: bool = false
+var building_light_enabled: bool = true
+var building_light_rotation_degrees: Vector3 = BUILDING_LIGHT_ROTATION_DEGREES
+var building_light_energy: float = BUILDING_LIGHT_ENERGY
 var _camera_initialized: bool = false
 var _layout_queued: bool = false
 var _performance_update_elapsed: float = 0.0
@@ -303,6 +310,17 @@ func _load_runtime_config() -> void:
 	sun_shadow_fade_start = clampf(float(config.get_value("lighting", "shadow_fade_start", 0.9)), 0.0, 1.0)
 	sun_shadow_blend_splits = bool(config.get_value("lighting", "shadow_blend_splits", false))
 	mountain_cast_shadows = bool(config.get_value("lighting", "mountain_cast_shadows", false))
+	building_light_enabled = bool(config.get_value("lighting", "building_light_enabled", true))
+	building_light_rotation_degrees = Vector3(
+		float(config.get_value("lighting", "building_light_pitch_degrees", BUILDING_LIGHT_ROTATION_DEGREES.x)),
+		float(config.get_value("lighting", "building_light_yaw_degrees", BUILDING_LIGHT_ROTATION_DEGREES.y)),
+		float(config.get_value("lighting", "building_light_roll_degrees", BUILDING_LIGHT_ROTATION_DEGREES.z))
+	)
+	building_light_energy = clampf(
+		float(config.get_value("lighting", "building_light_energy", BUILDING_LIGHT_ENERGY)),
+		0.0,
+		2.0
+	)
 
 
 func _build_ui() -> void:
@@ -1128,6 +1146,8 @@ func _set_world_active(active: bool) -> void:
 		planet_lander_landing.process_mode = Node.PROCESS_MODE_INHERIT if active else Node.PROCESS_MODE_DISABLED
 	if sun_light != null:
 		sun_light.visible = active
+	if building_light != null:
+		building_light.visible = active and building_light_enabled
 	if world_environment != null:
 		world_environment.process_mode = Node.PROCESS_MODE_INHERIT if active else Node.PROCESS_MODE_DISABLED
 	if input_controller != null:
@@ -1168,6 +1188,17 @@ func _build_world_lighting() -> void:
 		sun_light.directional_shadow_blend_splits = sun_shadow_blend_splits
 		sun_light.directional_shadow_fade_start = sun_shadow_fade_start
 		add_child(sun_light)
+
+	if building_light == null:
+		building_light = DirectionalLight3D.new()
+		building_light.name = "BuildingLight"
+		building_light.light_color = BUILDING_LIGHT_COLOR
+		building_light.light_energy = building_light_energy
+		building_light.rotation_degrees = building_light_rotation_degrees
+		building_light.light_cull_mask = IsoBuilding3DLayer.BUILDING_VISUAL_LAYER_MASK
+		building_light.shadow_enabled = false
+		building_light.visible = building_light_enabled
+		add_child(building_light)
 
 
 func _directional_shadow_mode() -> DirectionalLight3D.ShadowMode:
