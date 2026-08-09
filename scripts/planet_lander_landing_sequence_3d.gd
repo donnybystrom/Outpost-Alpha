@@ -10,7 +10,14 @@ const FLYING_DIFFUSE_PATH := "res://assets/3D/buildings/planet_lander_module_fly
 const LANDING_DURATION := 6.0
 const START_HEIGHT := 14.0
 const TOUCHDOWN_HEIGHT := 0.04
-const MODEL_SCALE := Vector3(1.55, 1.55, 1.55)
+const RUNTIME_CONFIG_PATH := "res://config/runtime.cfg"
+const RUNTIME_CONFIG_SECTION := "planet_lander_tuning"
+const DEFAULT_MODEL_UNIFORM_SCALE := 0.862989
+const DEFAULT_MODEL_OFFSET_UP := 0.44
+const DEFAULT_MODEL_OFFSET_SCREEN_RIGHT := 0.14
+# Used only to keep the engine effects proportional to the flying model.
+const ENGINE_REFERENCE_MODEL_SCALE := 1.55
+const DEFAULT_SCREEN_RIGHT_AXIS := Vector3(0.707106781, 0.0, -0.707106781)
 const AUDIO_MIX_RATE := 22050.0
 const TOUCHDOWN_AUDIO_DURATION := 2.25
 const ENGINE_OFFSETS: Array[Vector3] = [
@@ -38,6 +45,16 @@ var _engine_audio_phase_turbine := 0.0
 var _engine_filtered_noise := 0.0
 var _engine_audio_rng := RandomNumberGenerator.new()
 
+# Public for focused smoke tests and runtime diagnostics. These values are
+# refreshed from runtime.cfg on every prepare_landing() call.
+var runtime_config_path := RUNTIME_CONFIG_PATH
+var model_uniform_scale := DEFAULT_MODEL_UNIFORM_SCALE
+var model_offset_up := DEFAULT_MODEL_OFFSET_UP
+var model_offset_screen_right := DEFAULT_MODEL_OFFSET_SCREEN_RIGHT
+var model_visual_offset := Vector3.UP * DEFAULT_MODEL_OFFSET_UP \
+	+ DEFAULT_SCREEN_RIGHT_AXIS * DEFAULT_MODEL_OFFSET_SCREEN_RIGHT
+var engine_effect_scale := DEFAULT_MODEL_UNIFORM_SCALE / ENGINE_REFERENCE_MODEL_SCALE
+
 
 func _ready() -> void:
 	name = "PlanetLanderLandingSequence3D"
@@ -49,6 +66,7 @@ func prepare_landing(map_center: Vector2) -> void:
 	_active = false
 	_elapsed = 0.0
 	_landing_center = Vector3(map_center.x, TOUCHDOWN_HEIGHT, map_center.y)
+	_reload_runtime_tuning()
 	_clear_visuals()
 	_build_flying_model()
 	_build_engine_effects()
@@ -56,6 +74,45 @@ func prepare_landing(map_center: Vector2) -> void:
 	position = _landing_center + Vector3(0.0, START_HEIGHT, 0.0)
 	visible = false
 	set_process(false)
+
+
+func _reload_runtime_tuning() -> void:
+	model_uniform_scale = DEFAULT_MODEL_UNIFORM_SCALE
+	model_offset_up = DEFAULT_MODEL_OFFSET_UP
+	model_offset_screen_right = DEFAULT_MODEL_OFFSET_SCREEN_RIGHT
+
+	var config := ConfigFile.new()
+	var load_error := config.load(runtime_config_path)
+	if load_error == OK:
+		model_uniform_scale = clampf(float(config.get_value(
+			RUNTIME_CONFIG_SECTION,
+			"flying_model_scale",
+			DEFAULT_MODEL_UNIFORM_SCALE
+		)), 0.1, 4.0)
+		model_offset_up = clampf(float(config.get_value(
+			RUNTIME_CONFIG_SECTION,
+			"flying_offset_up",
+			DEFAULT_MODEL_OFFSET_UP
+		)), -5.0, 5.0)
+		model_offset_screen_right = clampf(float(config.get_value(
+			RUNTIME_CONFIG_SECTION,
+			"flying_offset_screen_right",
+			DEFAULT_MODEL_OFFSET_SCREEN_RIGHT
+		)), -5.0, 5.0)
+	else:
+		push_warning("Could not reload Planet Lander tuning from %s (error %d); using defaults." % [
+			runtime_config_path,
+			load_error,
+		])
+
+	model_visual_offset = Vector3.UP * model_offset_up \
+		+ DEFAULT_SCREEN_RIGHT_AXIS * model_offset_screen_right
+	engine_effect_scale = model_uniform_scale / ENGINE_REFERENCE_MODEL_SCALE
+	print("Planet Lander tuning reloaded: scale=%.6f up=%.3f right=%.3f" % [
+		model_uniform_scale,
+		model_offset_up,
+		model_offset_screen_right,
+	])
 
 
 func start_landing() -> bool:
@@ -120,7 +177,8 @@ func _build_flying_model() -> void:
 	_flying_model.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	_flying_model.mesh = mesh
 	_flying_model.material_override = _build_flying_material()
-	_flying_model.scale = MODEL_SCALE
+	_flying_model.scale = Vector3.ONE * model_uniform_scale
+	_flying_model.position = model_visual_offset
 	add_child(_flying_model)
 
 
@@ -137,20 +195,20 @@ func _build_flying_material() -> StandardMaterial3D:
 
 func _build_engine_effects() -> void:
 	var outer_flame_mesh := CylinderMesh.new()
-	outer_flame_mesh.top_radius = 0.13
-	outer_flame_mesh.bottom_radius = 0.018
-	outer_flame_mesh.height = 1.75
+	outer_flame_mesh.top_radius = 0.13 * engine_effect_scale
+	outer_flame_mesh.bottom_radius = 0.018 * engine_effect_scale
+	outer_flame_mesh.height = 1.75 * engine_effect_scale
 	outer_flame_mesh.radial_segments = 8
 	outer_flame_mesh.material = _build_flame_material(Color(1.0, 0.18, 0.015, 0.82), Color(1.0, 0.12, 0.01), 4.8)
 	var inner_flame_mesh := CylinderMesh.new()
-	inner_flame_mesh.top_radius = 0.072
-	inner_flame_mesh.bottom_radius = 0.008
-	inner_flame_mesh.height = 1.18
+	inner_flame_mesh.top_radius = 0.072 * engine_effect_scale
+	inner_flame_mesh.bottom_radius = 0.008 * engine_effect_scale
+	inner_flame_mesh.height = 1.18 * engine_effect_scale
 	inner_flame_mesh.radial_segments = 8
 	inner_flame_mesh.material = _build_flame_material(Color(1.0, 0.9, 0.42, 0.94), Color(1.0, 0.52, 0.08), 7.0)
 
 	var flame_mesh := QuadMesh.new()
-	flame_mesh.size = Vector2(0.065, 0.14)
+	flame_mesh.size = Vector2(0.065, 0.14) * engine_effect_scale
 	var flame_material := StandardMaterial3D.new()
 	flame_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	flame_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -174,11 +232,12 @@ func _build_engine_effects() -> void:
 	flame_ramp.gradient = flame_gradient
 
 	for engine_index in ENGINE_OFFSETS.size():
+		var engine_offset := ENGINE_OFFSETS[engine_index] * engine_effect_scale + model_visual_offset
 		var outer_flame := MeshInstance3D.new()
 		outer_flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		outer_flame.name = "LandingFlameOuter%d" % (engine_index + 1)
 		outer_flame.mesh = outer_flame_mesh
-		outer_flame.position = ENGINE_OFFSETS[engine_index] + Vector3(0.0, -0.82, 0.0)
+		outer_flame.position = engine_offset + Vector3(0.0, -0.82 * engine_effect_scale, 0.0)
 		add_child(outer_flame)
 		_engine_flames.append(outer_flame)
 
@@ -186,7 +245,7 @@ func _build_engine_effects() -> void:
 		inner_flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		inner_flame.name = "LandingFlameInner%d" % (engine_index + 1)
 		inner_flame.mesh = inner_flame_mesh
-		inner_flame.position = ENGINE_OFFSETS[engine_index] + Vector3(0.0, -0.52, 0.0)
+		inner_flame.position = engine_offset + Vector3(0.0, -0.52 * engine_effect_scale, 0.0)
 		add_child(inner_flame)
 		_engine_flames.append(inner_flame)
 
@@ -202,7 +261,7 @@ func _build_engine_effects() -> void:
 
 		var particles := GPUParticles3D.new()
 		particles.name = "LandingJet%d" % (engine_index + 1)
-		particles.position = ENGINE_OFFSETS[engine_index]
+		particles.position = engine_offset
 		particles.amount = 48
 		particles.lifetime = 0.62
 		particles.randomness = 0.35
@@ -217,7 +276,7 @@ func _build_engine_effects() -> void:
 
 	_engine_light = OmniLight3D.new()
 	_engine_light.name = "LandingJetLight"
-	_engine_light.position = Vector3(0.0, -0.4, 0.0)
+	_engine_light.position = model_visual_offset + Vector3(0.0, -0.4 * engine_effect_scale, 0.0)
 	_engine_light.light_color = Color(1.0, 0.36, 0.08)
 	_engine_light.light_energy = 4.0
 	_engine_light.omni_range = 7.0

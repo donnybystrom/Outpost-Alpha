@@ -690,11 +690,21 @@ func _clear_starting_lander_site(origin: Vector2i, footprint: Vector2i) -> void:
 			map_data.set_road(tile, false)
 
 
-func complete_starting_lander_landing() -> bool:
+func complete_starting_lander_landing(spawn_marines := true) -> bool:
 	if colony_state == null or not colony_state.complete_starting_lander_landing():
 		return false
 	_refresh_unit_paths("planet_lander_landed")
-	_spawn_planet_lander_marines()
+	if spawn_marines:
+		_spawn_planet_lander_marines()
+	buildings_changed.emit()
+	colony_changed.emit(colony_state.get_summary_lines())
+	return true
+
+
+func reset_starting_lander_for_replay() -> bool:
+	if colony_state == null or not colony_state.reset_starting_lander_for_replay():
+		return false
+	_refresh_unit_paths("planet_lander_replay")
 	buildings_changed.emit()
 	colony_changed.emit(colony_state.get_summary_lines())
 	return true

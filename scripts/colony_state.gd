@@ -127,6 +127,18 @@ func complete_starting_lander_landing() -> bool:
 	return false
 
 
+func reset_starting_lander_for_replay() -> bool:
+	for index in buildings.size():
+		if buildings[index].get("type", "") != BUILDING_PLANET_LANDER_MODULE:
+			continue
+		var building := buildings[index]
+		building["operational"] = false
+		building["landing_state"] = "descending"
+		buildings[index] = building
+		return true
+	return false
+
+
 func _add_building(building_type: String, origin: Vector2i, orientation := BuildingCatalog.ORIENTATION_HORIZONTAL, stored_metal := 0) -> void:
 	buildings.append({
 		"id": _next_building_id,

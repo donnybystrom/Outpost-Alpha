@@ -137,6 +137,7 @@ var _last_overlay_viewport_size := Vector2(-1.0, -1.0)
 var _last_overlay_tilt := INF
 var _sandbox_loading := false
 var _music_tween: Tween
+var _replaying_planet_lander := false
 
 
 func _ready() -> void:
@@ -1277,6 +1278,10 @@ func _toggle_admin_panel() -> void:
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var key := event as InputEventKey
+		if key.pressed and not key.echo and key.keycode == KEY_R and app_state == AppState.IN_GAME:
+			_replay_planet_lander_landing()
+			get_viewport().set_input_as_handled()
+			return
 		if key.pressed and not key.echo and _is_admin_toggle_key(key):
 			_toggle_admin_panel()
 			get_viewport().set_input_as_handled()
@@ -1700,10 +1705,25 @@ func _start_planet_lander_landing() -> void:
 		world.complete_starting_lander_landing()
 
 
+func _replay_planet_lander_landing() -> void:
+	if world == null or planet_lander_landing == null:
+		return
+	if not world.reset_starting_lander_for_replay():
+		return
+	_replaying_planet_lander = true
+	_prepare_planet_lander_landing()
+	if not planet_lander_landing.start_landing():
+		_replaying_planet_lander = false
+		world.complete_starting_lander_landing(false)
+	_sync_resource_bar()
+
+
 func _on_planet_lander_landed() -> void:
 	if world == null:
 		return
-	if world.complete_starting_lander_landing():
+	var spawn_marines := not _replaying_planet_lander
+	_replaying_planet_lander = false
+	if world.complete_starting_lander_landing(spawn_marines):
 		_sync_unit_3d_layer()
 
 
