@@ -39,9 +39,16 @@ func _initialize() -> void:
 	if not terrain_shader_code.contains("void light()") or not terrain_shader_code.contains("ATTENUATION"):
 		_fail("Ground lighting should preserve Godot shadow attenuation instead of relying on unshadowed emission.")
 		return
-	if terrain_layer.geology_texture == null or not terrain_shader_code.contains("geology_map") or not terrain_shader_code.contains("crater_pattern"):
-		_fail("Ground should blend macro geology, crater and mountain-edge fields in world space.")
+	if terrain_layer.geology_texture == null or not terrain_shader_code.contains("geology_map") or not terrain_shader_code.contains("domain_warp"):
+		_fail("Ground should blend domain-warped macro geology and mountain-edge fields in world space.")
 		return
+	if terrain_shader_code.contains("crater_pattern") or not terrain_shader_code.contains("surface_height") or not terrain_shader_code.contains("world_height_gradient"):
+		_fail("Dense-atmosphere ground should use derivative bump detail without procedural impact craters.")
+		return
+	for filter_name in ["dust_filter", "bedrock_filter", "wind_filter", "fracture_filter"]:
+		if not terrain_shader_code.contains(filter_name):
+			_fail("Ground shader is missing continuous surface filter: %s" % filter_name)
+			return
 	terrain_layer.set_grid_visible(false)
 	if terrain_layer.grid_visible or terrain_layer.get_child_count() != expected_chunks:
 		_fail("The debug grid should be a shader overlay and toggling it must not rebuild geometry.")

@@ -81,6 +81,9 @@ func _rebuild(reason: String) -> void:
 	material.set_shader_parameter("pale_regolith", PlanetSurfacePalette.PALE_REGOLITH)
 	material.set_shader_parameter("rocky_scree", PlanetSurfacePalette.ROCKY_SCREE)
 	material.set_shader_parameter("volcanic_crust", PlanetSurfacePalette.VOLCANIC_CRUST)
+	material.set_shader_parameter("compact_bedrock", PlanetSurfacePalette.COMPACT_BEDROCK)
+	material.set_shader_parameter("eroded_stone", PlanetSurfacePalette.ERODED_STONE)
+	material.set_shader_parameter("pressure_dust", PlanetSurfacePalette.PRESSURE_DUST)
 	material.set_shader_parameter("mineral_warm", PlanetSurfacePalette.MINERAL_WARM)
 	material.set_shader_parameter("fungal_dark", PlanetSurfacePalette.FUNGAL_CRUST_DARK)
 	material.set_shader_parameter("fungal_light", PlanetSurfacePalette.FUNGAL_CRUST_LIGHT)
@@ -192,11 +195,23 @@ uniform vec4 weathered_dust = vec4(0.298, 0.286, 0.259, 1.0);
 uniform vec4 pale_regolith = vec4(0.439, 0.408, 0.357, 1.0);
 uniform vec4 rocky_scree = vec4(0.282, 0.275, 0.255, 1.0);
 uniform vec4 volcanic_crust = vec4(0.176, 0.180, 0.169, 1.0);
+uniform vec4 compact_bedrock = vec4(0.388, 0.376, 0.329, 1.0);
+uniform vec4 eroded_stone = vec4(0.494, 0.471, 0.396, 1.0);
+uniform vec4 pressure_dust = vec4(0.545, 0.510, 0.416, 1.0);
 uniform vec4 mineral_warm = vec4(0.435, 0.325, 0.216, 1.0);
 uniform vec4 fungal_dark = vec4(0.267, 0.267, 0.192, 1.0);
 uniform vec4 fungal_light = vec4(0.424, 0.400, 0.263, 1.0);
 uniform vec4 crystal_color = vec4(0.537, 0.322, 0.600, 1.0);
 uniform vec4 vent_color = vec4(0.239, 0.412, 0.404, 1.0);
+
+// World-space controls. These are intentionally uniforms so surface tuning never requires
+// regenerating tiles or geometry.
+uniform float warp_strength : hint_range(0.0, 0.2) = 0.145;
+uniform float macro_scale : hint_range(0.01, 0.15) = 0.052;
+uniform float macro_strength : hint_range(0.0, 1.0) = 0.62;
+uniform float micro_scale : hint_range(0.2, 3.0) = 1.18;
+uniform float micro_strength : hint_range(0.0, 0.3) = 0.085;
+uniform float bump_intensity : hint_range(0.0, 2.0) = 0.72;
 
 varying vec3 world_position;
 
@@ -217,19 +232,55 @@ float value_noise(vec2 point) {
 	return mix(mix(a, b, local.x), mix(c, d, local.x), local.y);
 }
 
-vec2 crater_pattern(vec2 world_point) {
-	vec2 crater_space = world_point * 0.052;
-	vec2 cell = floor(crater_space);
-	vec2 local = fract(crater_space);
-	vec2 center = vec2(
-		0.22 + hash21(cell + vec2(13.0, 7.0)) * 0.56,
-		0.22 + hash21(cell + vec2(31.0, 19.0)) * 0.56
+float fbm(vec2 point) {
+	float total = 0.0;
+	float amplitude = 0.52;
+	mat2 octave_rotation = mat2(vec2(0.80, -0.60), vec2(0.60, 0.80));
+	for (int octave = 0; octave < 5; octave++) {
+		total += value_noise(point) * amplitude;
+		point = octave_rotation * point * 2.03 + vec2(17.13, 9.71);
+		amplitude *= 0.52;
+	}
+	return total / 1.008;
+}
+
+vec2 domain_warp(vec2 point) {
+	vec2 offset = vec2(
+		fbm(point * 0.71 + vec2(13.7, 5.3)),
+		fbm(point * 0.71 + vec2(-8.2, 19.1))
+	) - vec2(0.5);
+	return point + offset * warp_strength;
+}
+
+// Dense-atmosphere erosion profile: broad pressure-weathered shelves, wind-carved folds,
+// compacted plates and fine gravel. Deliberately contains no impact/crater term.
+float surface_height(vec2 world_point) {
+	vec2 macro_source = world_point * macro_scale + vec2(world_seed * 0.0017);
+	vec2 macro_uv = domain_warp(macro_source);
+	vec2 warp_offset = macro_uv - macro_source;
+	float macro_height = (fbm(macro_uv) - 0.5) * macro_strength;
+	vec2 wind_direction = normalize(vec2(0.93, 0.37));
+	vec2 wind_normal = vec2(-wind_direction.y, wind_direction.x);
+	float folded_coordinate = dot(macro_uv, wind_normal) * 17.0 + value_noise(macro_uv * 1.9 + vec2(7.0)) * 4.2;
+	float wind_fold = (1.0 - abs(sin(folded_coordinate))) * 0.075;
+	vec2 micro_uv = world_point * micro_scale + warp_offset * 18.0 + vec2(31.0, -17.0);
+	float micro_height = (value_noise(micro_uv) - 0.5) * micro_strength;
+	return macro_height + wind_fold + micro_height;
+}
+
+vec2 world_height_gradient(vec2 world_point, float height_value) {
+	vec2 position_dx = dFdx(world_point);
+	vec2 position_dy = dFdy(world_point);
+	float height_dx = dFdx(height_value);
+	float height_dy = dFdy(height_value);
+	float determinant = position_dx.x * position_dy.y - position_dx.y * position_dy.x;
+	if (abs(determinant) < 0.000001) {
+		return vec2(0.0);
+	}
+	return vec2(
+		(height_dx * position_dy.y - height_dy * position_dx.y) / determinant,
+		(position_dx.x * height_dy - position_dy.x * height_dx) / determinant
 	);
-	float radius = mix(0.10, 0.25, hash21(cell + vec2(47.0, 3.0)));
-	float radial_distance = distance(local, center);
-	float rim = 1.0 - smoothstep(0.025, 0.060, abs(radial_distance - radius));
-	float basin = 1.0 - smoothstep(radius * 0.22, radius, radial_distance);
-	return vec2(rim, basin);
 }
 
 void vertex() {
@@ -247,35 +298,47 @@ void fragment() {
 	float rockiness = geology.a;
 	float colony_distance = distance(world_position.xz, colony_center);
 	float wilderness = smoothstep(build_radius * 0.78, build_radius + 12.0, colony_distance);
-	float broad = value_noise(world_position.xz * 0.085 + vec2(world_seed * 0.013));
-	float detail = value_noise(world_position.xz * 0.62 - vec2(world_seed * 0.021));
-	float veins = smoothstep(0.66, 0.86, value_noise(world_position.xz * 0.19 + vec2(37.0)) + ecology.b * 0.18);
-	float weathered_patch = smoothstep(0.56, 0.76, value_noise(world_position.xz * 0.24 + vec2(19.0))) * mix(0.18, 1.0, wilderness);
-	float macro_zone = value_noise(world_position.xz * 0.024 + vec2(world_seed * 0.003));
+	float height_value = surface_height(world_position.xz);
+	vec2 macro_source = world_position.xz * macro_scale + vec2(world_seed * 0.0017);
+	vec2 warped_macro = domain_warp(macro_source);
+	vec2 warp_offset = warped_macro - macro_source;
+	vec2 warped_meso = world_position.xz * 0.19 + vec2(19.0) + warp_offset * 3.4;
+	float broad = fbm(warped_macro);
+	float meso = fbm(warped_meso);
+	float detail = value_noise(warped_meso * 6.2 - vec2(world_seed * 0.021));
+	float veins = smoothstep(0.64, 0.84, value_noise(warped_meso * 1.31 + vec2(37.0)) + ecology.b * 0.18);
+	float weathered_patch = smoothstep(0.52, 0.73, meso) * mix(0.16, 1.0, wilderness);
+	float macro_zone = fbm(world_position.xz * 0.022 + vec2(world_seed * 0.003) + warp_offset * 0.75);
 	vec2 wind_direction = normalize(vec2(0.93, 0.37));
 	vec2 wind_normal = vec2(-wind_direction.y, wind_direction.x);
-	float wind_streak = value_noise(vec2(dot(world_position.xz, wind_direction) * 0.075, dot(world_position.xz, wind_normal) * 0.014));
-	vec2 crater = crater_pattern(world_position.xz + vec2(world_seed * 0.017));
+	vec2 wind_space = vec2(dot(world_position.xz, wind_direction) * 0.082, dot(world_position.xz, wind_normal) * 0.018);
+	float wind_streak = fbm(wind_space + vec2(world_seed * 0.002) + warp_offset * 2.0);
 	float crack_delta = abs(
-		value_noise(world_position.xz * 0.37 + vec2(11.0))
-		- value_noise(world_position.xz * 0.37 + vec2(11.19, 10.83))
+		value_noise(warped_meso * 1.75 + vec2(11.0))
+		- value_noise(warped_meso * 1.75 + vec2(11.19, 10.83))
 	);
-	float cracks = 1.0 - smoothstep(0.018, 0.060, crack_delta);
+	float cracks = 1.0 - smoothstep(0.012, 0.046, crack_delta);
 
-	// Buildable ground stays calm and legible; wilderness receives the stronger geology.
-	vec3 basalt = mix(bedrock_low.rgb, bedrock_mid.rgb, 0.30 + broad * 0.34);
-	basalt = mix(basalt, weathered_dust.rgb, 0.34 + weathered_patch * 0.22);
-	float contrast = mix(0.08, 0.20, wilderness);
+	// Continuous surface filters. One shader produces compact buildable plates, dust beds,
+	// wind-eroded layers and fractured rock without assigning visual tiles.
+	float height_ramp = smoothstep(-0.24, 0.30, height_value);
+	float dust_filter = dustiness * smoothstep(0.38, 0.72, macro_zone - height_value * 0.35) * (1.0 - mountain_edge * 0.76);
+	float bedrock_filter = rockiness * smoothstep(0.42, 0.70, meso + height_value * 0.28);
+	float wind_filter = wilderness * smoothstep(0.45, 0.70, wind_streak) * (0.30 + surface_age * 0.70);
+	float fracture_filter = cracks * surface_age * mix(0.28, 0.82, wilderness);
+
+	vec3 basalt = mix(weathered_dust.rgb, compact_bedrock.rgb, 0.28 + height_ramp * 0.56);
+	basalt = mix(basalt, eroded_stone.rgb, weathered_patch * 0.30 + wind_filter * 0.22);
+	basalt = mix(basalt, pressure_dust.rgb, dust_filter * 0.46);
+	basalt = mix(basalt, bedrock_mid.rgb, bedrock_filter * 0.34);
+	basalt = mix(basalt, volcanic_crust.rgb, fracture_filter * 0.15);
+	float contrast = mix(0.075, 0.17, wilderness);
 	basalt *= 1.0 + (detail - 0.5) * contrast;
-	vec3 regolith = mix(weathered_dust.rgb, pale_regolith.rgb, 0.25 + wind_streak * 0.38);
-	vec3 scree = mix(rocky_scree.rgb, bedrock_mid.rgb, detail * 0.32 + rockiness * 0.26);
-	float dust_weight = dustiness * mix(0.18, 0.48, macro_zone) * (1.0 - mountain_edge * 0.82);
-	float volcanic_weight = surface_age * smoothstep(0.58, 0.78, macro_zone) * wilderness * 0.24;
-	basalt = mix(basalt, regolith, dust_weight);
-	basalt = mix(basalt, volcanic_crust.rgb, volcanic_weight);
-	basalt = mix(basalt, bedrock_mid.rgb * 1.04, crater.x * surface_age * wilderness * 0.16);
-	basalt = mix(basalt, volcanic_crust.rgb, crater.y * surface_age * wilderness * 0.10);
-	basalt = mix(basalt, volcanic_crust.rgb * 0.78, cracks * surface_age * wilderness * 0.055);
+	vec3 regolith = mix(weathered_dust.rgb, pressure_dust.rgb, 0.22 + wind_streak * 0.42);
+	vec3 scree = mix(rocky_scree.rgb, eroded_stone.rgb, detail * 0.22 + rockiness * 0.30);
+	float dust_weight = dust_filter * mix(0.30, 0.68, macro_zone);
+	basalt = mix(basalt, regolith, dust_weight * 0.34);
+	basalt = mix(basalt, volcanic_crust.rgb * 0.82, fracture_filter * 0.09);
 
 	vec3 fungal_crust = mix(fungal_dark.rgb, fungal_light.rgb, broad * 0.65 + detail * 0.20);
 	vec3 crystal_ground = mix(basalt, crystal_color.rgb, 0.42 + broad * 0.16);
@@ -287,7 +350,7 @@ void fragment() {
 	ground = mix(ground, crystal_ground, biome.g * 0.66);
 	ground = mix(ground, ore_ground, biome.b * 0.64);
 	ground = mix(ground, vent_ground, biome.a * 0.62);
-	ground = mix(ground, scree, mountain_edge * 0.84);
+	ground = mix(ground, scree, mountain_edge * 0.68);
 	ground = mix(ground, mineral_warm.rgb, veins * ecology.b * wilderness * 0.10);
 	ground = mix(ground, mineral_warm.rgb, smoothstep(0.66, 0.83, wind_streak + ecology.b * 0.22) * ecology.b * wilderness * 0.075);
 	ground = mix(ground, mineral_warm.rgb * 0.72, ecology.g * wilderness * 0.035);
@@ -298,11 +361,17 @@ void fragment() {
 		ground = mix(ground, ground * 0.78, grid_line * 0.18);
 	}
 
+	vec2 height_gradient = world_height_gradient(world_position.xz, height_value);
+	float buildable_calm = 1.0 - smoothstep(build_radius * 0.68, build_radius + 7.0, colony_distance);
+	float relief_strength = bump_intensity * mix(0.34, 1.0, wilderness) * mix(0.72, 1.18, rockiness);
+	vec3 world_normal = normalize(vec3(-height_gradient.x * relief_strength, 1.0, -height_gradient.y * relief_strength));
+	NORMAL = normalize((VIEW_MATRIX * vec4(world_normal, 0.0)).xyz);
+
 	ALBEDO = ground;
 	// A low base fill preserves readability inside cast shadows. The light pass below supplies
 	// the brighter, shadow-attenuated portion instead of baking all brightness into emission.
 	EMISSION = ground * mix(0.48, 0.28, wilderness);
-	ROUGHNESS = clamp(0.91 + dust_weight * 0.075 + mountain_edge * 0.045 - ecology.b * veins * wilderness * 0.12, 0.72, 1.0);
+	ROUGHNESS = clamp(0.87 + dust_filter * 0.10 + fracture_filter * 0.05 + mountain_edge * 0.035 - ecology.b * veins * wilderness * 0.10 - buildable_calm * 0.02, 0.76, 1.0);
 	SPECULAR = 0.16;
 }
 
