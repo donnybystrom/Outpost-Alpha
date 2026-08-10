@@ -11,19 +11,33 @@ const TERRAIN_VENT := 4
 const TERRAIN_MOUNTAIN := 5
 
 const DETAIL_ROCK := 0
-const DETAIL_CRYSTAL := 1
-const DETAIL_FUNGUS := 2
-const DETAIL_VENT := 3
+const DETAIL_CHRYSTALLIS_1 := 1
+const DETAIL_CHRYSTALLIS_2 := 2
+const DETAIL_CHRYSTALLIS_3 := 3
+const DETAIL_FUNGUS := 4
+const DETAIL_VENT := 5
+
+const CHRYSTALLIS_MESH_PATHS := [
+	"res://assets/3D/environment/chrystallis_1/base.obj",
+	"res://assets/3D/environment/chrystallis_2/base.obj",
+	"res://assets/3D/environment/chrystallis_3/base.obj",
+]
+const CHRYSTALLIS_DETAIL_TYPES := [
+	DETAIL_CHRYSTALLIS_1,
+	DETAIL_CHRYSTALLIS_2,
+	DETAIL_CHRYSTALLIS_3,
+]
 
 var map_data: RefCounted
 var meshes: Array[Mesh] = []
-var materials: Array[StandardMaterial3D] = []
+var materials: Array[Material] = []
 var rebuild_requests := 0
 var last_cells_processed := 0
 var last_rebuild_usec := 0
 var last_reason := ""
 var last_placement_count := 0
 var last_scree_placement_count := 0
+var last_chrystallis_placement_count := 0
 
 
 func _ready() -> void:
@@ -51,6 +65,7 @@ func get_diagnostics() -> Dictionary:
 		"chunks": _active_chunk_count(),
 		"placements": last_placement_count,
 		"scree_placements": last_scree_placement_count,
+		"chrystallis_placements": last_chrystallis_placement_count,
 	}
 
 
@@ -61,6 +76,7 @@ func _rebuild(reason: String) -> void:
 	last_cells_processed = 0
 	last_placement_count = 0
 	last_scree_placement_count = 0
+	last_chrystallis_placement_count = 0
 	for child in get_children():
 		child.queue_free()
 
@@ -118,15 +134,21 @@ func _place_tile_details(placements_by_chunk: Dictionary, tile: Vector2i, terrai
 			if _unit_noise(tile, 41) < minerals * 0.07:
 				_append_placement(placements_by_chunk, tile, DETAIL_ROCK, _detail_transform(tile, 43, 0.65, 0.06))
 		TERRAIN_CRYSTAL:
-			if _unit_noise(tile, 47) < 0.58 + minerals * 0.34:
-				_append_placement(placements_by_chunk, tile, DETAIL_CRYSTAL, _detail_transform(tile, 53, 0.78, 0.20))
+			var crystal_core := _chrystallis_core_weight(tile)
+			var crystal_density := 0.30 + crystal_core * 0.50 + minerals * 0.16
+			if _unit_noise(tile, 47) < crystal_density:
+				var crystal_type := _chrystallis_detail_type(tile, 53)
+				_append_placement(placements_by_chunk, tile, crystal_type, _chrystallis_transform(tile, 53, crystal_core, 1.0))
+				last_chrystallis_placement_count += 1
 			if _unit_noise(tile, 59) < 0.16:
 				_append_placement(placements_by_chunk, tile, DETAIL_ROCK, _detail_transform(tile, 61, 0.58, 0.06))
 		TERRAIN_ORE:
 			if _unit_noise(tile, 67) < 0.38 + minerals * 0.34:
 				_append_placement(placements_by_chunk, tile, DETAIL_ROCK, _detail_transform(tile, 71, 0.88, 0.07))
 			if _unit_noise(tile, 73) < minerals * 0.22:
-				_append_placement(placements_by_chunk, tile, DETAIL_CRYSTAL, _detail_transform(tile, 79, 0.54, 0.15))
+				var trace_crystal_type := _chrystallis_detail_type(tile, 79)
+				_append_placement(placements_by_chunk, tile, trace_crystal_type, _chrystallis_transform(tile, 79, minerals * 0.45, 0.48))
+				last_chrystallis_placement_count += 1
 		TERRAIN_VENT:
 			if _unit_noise(tile, 83) < 0.62:
 				_append_placement(placements_by_chunk, tile, DETAIL_VENT, _detail_transform(tile, 89, 0.92, 0.17))
@@ -176,6 +198,54 @@ func _detail_transform(tile: Vector2i, salt: int, base_scale: float, y: float) -
 	return Transform3D(basis, Vector3(float(tile.x) + offset.x, y, float(tile.y) + offset.y))
 
 
+func _chrystallis_transform(tile: Vector2i, salt: int, core_weight: float, scale_multiplier: float) -> Transform3D:
+	var richness: float = map_data.get_mineral_content(tile)
+	var growth_weight := clampf(core_weight * 0.76 + richness * 0.24, 0.0, 1.0)
+	var uniform_scale := lerpf(0.18, 0.48, growth_weight)
+	uniform_scale *= lerpf(0.82, 1.18, _unit_noise(tile, salt + 2)) * scale_multiplier
+	# Rare central formations become landmarks without making every tile equally tall.
+	if core_weight > 0.72 and _unit_noise(tile, salt + 4) > 0.93:
+		uniform_scale *= 1.48
+	var width_variation := lerpf(0.88, 1.12, _unit_noise(tile, salt + 6))
+	var height_variation := lerpf(0.92, 1.14, _unit_noise(tile, salt + 8))
+	var yaw := _unit_noise(tile, salt + 10) * TAU
+	var tilt_x := deg_to_rad(lerpf(-7.0, 7.0, _unit_noise(tile, salt + 12)))
+	var tilt_z := deg_to_rad(lerpf(-7.0, 7.0, _unit_noise(tile, salt + 14)))
+	var offset := Vector2(
+		(_unit_noise(tile, salt + 16) - 0.5) * 0.46,
+		(_unit_noise(tile, salt + 18) - 0.5) * 0.46
+	)
+	var basis := Basis.from_euler(Vector3(tilt_x, yaw, tilt_z)).scaled(Vector3(
+		uniform_scale * width_variation,
+		uniform_scale * height_variation,
+		uniform_scale / width_variation
+	))
+	var sink := lerpf(-0.08, 0.015, _unit_noise(tile, salt + 20)) * scale_multiplier
+	return Transform3D(basis, Vector3(float(tile.x) + offset.x, sink, float(tile.y) + offset.y))
+
+
+func _chrystallis_core_weight(tile: Vector2i) -> float:
+	var matching_neighbors := 0
+	var valid_neighbors := 0
+	for offset in [
+		Vector2i(-1, -1), Vector2i(0, -1), Vector2i(1, -1),
+		Vector2i(-1, 0), Vector2i(1, 0),
+		Vector2i(-1, 1), Vector2i(0, 1), Vector2i(1, 1),
+	]:
+		var neighbor: Vector2i = tile + offset
+		if not map_data.is_inside(neighbor):
+			continue
+		valid_neighbors += 1
+		if map_data.get_terrain(neighbor) == TERRAIN_CRYSTAL:
+			matching_neighbors += 1
+	return float(matching_neighbors) / maxf(float(valid_neighbors), 1.0)
+
+
+func _chrystallis_detail_type(tile: Vector2i, salt: int) -> int:
+	var variant_index := mini(floori(_unit_noise(tile, salt) * float(CHRYSTALLIS_DETAIL_TYPES.size())), CHRYSTALLIS_DETAIL_TYPES.size() - 1)
+	return int(CHRYSTALLIS_DETAIL_TYPES[variant_index])
+
+
 func _unit_noise(tile: Vector2i, salt: int) -> float:
 	var seed := maxi(1, int(map_data.seed)) if map_data != null else 1
 	var value := int(tile.x * 374761393 + tile.y * 668265263 + seed * 2246822519 + salt * 3266489917)
@@ -187,10 +257,20 @@ func _unit_noise(tile: Vector2i, salt: int) -> float:
 func _ensure_assets() -> void:
 	if not meshes.is_empty():
 		return
-	meshes = [_rock_mesh(), _crystal_mesh(), _fungus_mesh(), _vent_mesh()]
+	var chrystallis_material := _chrystallis_material()
+	meshes = [
+		_rock_mesh(),
+		_load_chrystallis_mesh(CHRYSTALLIS_MESH_PATHS[0]),
+		_load_chrystallis_mesh(CHRYSTALLIS_MESH_PATHS[1]),
+		_load_chrystallis_mesh(CHRYSTALLIS_MESH_PATHS[2]),
+		_fungus_mesh(),
+		_vent_mesh(),
+	]
 	materials = [
 		_material(PlanetSurfacePalette.BEDROCK_MID, 0.98, 0.0),
-		_material(PlanetSurfacePalette.CRYSTAL, 0.62, 0.08),
+		chrystallis_material,
+		chrystallis_material,
+		chrystallis_material,
 		_material(PlanetSurfacePalette.FUNGUS_BODY, 0.94, 0.0),
 		_material(PlanetSurfacePalette.VENT_MINERAL, 0.82, 0.03),
 	]
@@ -205,7 +285,7 @@ func _rock_mesh() -> Mesh:
 	return mesh
 
 
-func _crystal_mesh() -> Mesh:
+func _fallback_chrystallis_mesh() -> Mesh:
 	var mesh := CylinderMesh.new()
 	mesh.top_radius = 0.0
 	mesh.bottom_radius = 0.12
@@ -213,6 +293,58 @@ func _crystal_mesh() -> Mesh:
 	mesh.radial_segments = 5
 	mesh.rings = 1
 	return mesh
+
+
+func _load_chrystallis_mesh(path: String) -> Mesh:
+	if ResourceLoader.exists(path):
+		var loaded_mesh := ResourceLoader.load(path) as Mesh
+		if loaded_mesh != null:
+			return loaded_mesh
+	push_warning("Chrystallis mesh could not be loaded: %s" % path)
+	return _fallback_chrystallis_mesh()
+
+
+func _chrystallis_material() -> ShaderMaterial:
+	var shader := Shader.new()
+	shader.code = """
+shader_type spatial;
+render_mode cull_disabled, depth_draw_opaque;
+
+uniform vec3 core_color : source_color = vec3(0.07, 0.008, 0.16);
+uniform vec3 body_color : source_color = vec3(0.25, 0.015, 0.52);
+uniform vec3 rim_color : source_color = vec3(1.0, 0.03, 0.78);
+uniform vec3 energy_color : source_color = vec3(0.30, 0.015, 0.88);
+uniform float emission_energy = 1.25;
+uniform float pulse_speed = 0.62;
+uniform float pulse_amount = 0.07;
+
+varying float instance_phase;
+varying float instance_variation;
+
+void vertex() {
+	vec2 instance_position = MODEL_MATRIX[3].xz;
+	float seed = fract(sin(dot(instance_position, vec2(12.9898, 78.233))) * 43758.5453);
+	instance_phase = seed * 6.28318530718;
+	instance_variation = fract(seed * 7.173);
+}
+
+void fragment() {
+	vec3 surface_normal = normalize(NORMAL);
+	vec3 view_direction = normalize(VIEW);
+	float fresnel = pow(clamp(1.0 - dot(surface_normal, view_direction), 0.0, 1.0), 2.15);
+	float pulse = 1.0 + sin(TIME * pulse_speed + instance_phase) * pulse_amount;
+	vec3 varied_body = mix(core_color, body_color, 0.42 + instance_variation * 0.18);
+
+	ALBEDO = mix(varied_body, rim_color, fresnel * 0.55);
+	METALLIC = 0.08;
+	ROUGHNESS = mix(0.19, 0.09, fresnel);
+	SPECULAR = 0.82;
+	EMISSION = mix(energy_color, rim_color, fresnel * 0.80) * emission_energy * pulse * (0.17 + fresnel * 1.05);
+}
+"""
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	return material
 
 
 func _fungus_mesh() -> Mesh:
@@ -278,7 +410,7 @@ func _material(color: Color, roughness: float, metallic: float) -> StandardMater
 
 
 func _detail_name(detail_type: int) -> String:
-	return ["Rocks", "Crystals", "Fungus", "Vents"][detail_type]
+	return ["Rocks", "Chrystallis1", "Chrystallis2", "Chrystallis3", "Fungus", "Vents"][detail_type]
 
 
 func _active_chunk_count() -> int:

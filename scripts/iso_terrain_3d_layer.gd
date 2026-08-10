@@ -17,6 +17,7 @@ var material: ShaderMaterial
 var biome_texture: ImageTexture
 var ecology_texture: ImageTexture
 var geology_texture: ImageTexture
+var crystal_glow_texture: ImageTexture
 var baked_albedo_texture: ImageTexture
 var baked_texture_size := Vector2i.ZERO
 var last_surface_bake_usec := 0
@@ -76,6 +77,7 @@ func _rebuild(reason: String) -> void:
 	var field_images := _build_field_textures()
 	_bake_surface_textures(field_images)
 	material.set_shader_parameter("baked_albedo_map", baked_albedo_texture)
+	material.set_shader_parameter("crystal_glow_map", crystal_glow_texture)
 	material.set_shader_parameter("map_size", Vector2(map_data.size))
 	material.set_shader_parameter("show_grid", grid_visible)
 
@@ -126,11 +128,33 @@ func _build_field_textures() -> Dictionary:
 	biome_texture = ImageTexture.create_from_image(biome_image)
 	ecology_texture = ImageTexture.create_from_image(ecology_image)
 	geology_texture = ImageTexture.create_from_image(geology_image)
+	crystal_glow_texture = ImageTexture.create_from_image(_build_crystal_glow_image(biome_image))
 	return {
 		"biome": biome_image,
 		"ecology": ecology_image,
 		"geology": geology_image,
 	}
+
+
+func _build_crystal_glow_image(biome_image: Image) -> Image:
+	var glow_image := Image.create(map_data.size.x, map_data.size.y, false, Image.FORMAT_RGBA8)
+	const GLOW_RADIUS := 3
+	const GLOW_DISTANCE := 2.75
+	for y in map_data.size.y:
+		for x in map_data.size.x:
+			var glow_strength := 0.0
+			for offset_y in range(-GLOW_RADIUS, GLOW_RADIUS + 1):
+				for offset_x in range(-GLOW_RADIUS, GLOW_RADIUS + 1):
+					var source := Vector2i(x + offset_x, y + offset_y)
+					if not map_data.is_inside(source) or biome_image.get_pixelv(source).g < 0.5:
+						continue
+					var distance := Vector2(float(offset_x), float(offset_y)).length()
+					if distance > GLOW_DISTANCE:
+						continue
+					var candidate := 1.0 - smoothstep(0.0, GLOW_DISTANCE, distance)
+					glow_strength = maxf(glow_strength, candidate)
+			glow_image.set_pixel(x, y, Color(glow_strength, glow_strength, glow_strength, 1.0))
+	return glow_image
 
 
 func _bake_surface_textures(field_images: Dictionary) -> void:
@@ -370,6 +394,7 @@ shader_type spatial;
 render_mode cull_disabled, ambient_light_disabled;
 
 uniform sampler2D baked_albedo_map : filter_linear, repeat_disable;
+uniform sampler2D crystal_glow_map : filter_linear, repeat_disable;
 uniform vec2 map_size = vec2(96.0);
 uniform bool show_grid = true;
 
@@ -382,6 +407,8 @@ void vertex() {
 void fragment() {
 	vec2 map_uv = clamp((world_position.xz + vec2(0.5)) / map_size, vec2(0.0001), vec2(0.9999));
 	vec3 ground = texture(baked_albedo_map, map_uv).rgb;
+	float crystal_glow = texture(crystal_glow_map, map_uv).r;
+	vec3 crystal_energy = vec3(0.38, 0.018, 0.72);
 
 	if (show_grid) {
 		vec2 edge_distance = abs(fract(world_position.xz + vec2(0.5)) - vec2(0.5));
@@ -389,10 +416,11 @@ void fragment() {
 		ground = mix(ground, ground * 0.78, grid_line * 0.18);
 	}
 
-	ALBEDO = ground;
+	ALBEDO = mix(ground, crystal_energy, crystal_glow * 0.025);
 	// The baked texture supplies the finished surface appearance. This constant fill only keeps
 	// realtime cast shadows readable; it performs no procedural surface or normal calculation.
-	EMISSION = ground * 0.42;
+	float crystal_pulse = 0.96 + sin(TIME * 0.48 + world_position.x * 0.17 + world_position.z * 0.13) * 0.04;
+	EMISSION = ground * 0.42 + crystal_energy * crystal_glow * 0.18 * crystal_pulse;
 }
 
 void light() {

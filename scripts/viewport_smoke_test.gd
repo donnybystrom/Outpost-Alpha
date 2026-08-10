@@ -20,20 +20,20 @@ func _initialize() -> void:
 	var game_hud_root := root.get_node("Ui/UiRoot/GameHud") as Control
 	var hud_panel := root.get_node("Ui/UiRoot/GameHud/StatusPanel") as Control
 	var initial_zoom := camera.zoom
-	var initial_hud_scale := game_hud_root.scale
+	var initial_hud_scale := root.get_effective_hud_scale_for_tests()
 
 	get_root().size = Vector2i(1920, 720)
 	await process_frame
 	var wide_viewport_size := get_root().get_visible_rect().size
 	var wide_zoom := camera.zoom
-	var wide_hud_scale := game_hud_root.scale
+	var wide_hud_scale := root.get_effective_hud_scale_for_tests()
 	var wide_panel_position := hud_panel.position
 
 	get_root().size = Vector2i(900, 900)
 	await process_frame
 	var square_viewport_size := get_root().get_visible_rect().size
 	var square_zoom := camera.zoom
-	var square_hud_scale := game_hud_root.scale
+	var square_hud_scale := root.get_effective_hud_scale_for_tests()
 	var square_panel_position := hud_panel.position
 
 	if not initial_zoom.is_equal_approx(wide_zoom) or not initial_zoom.is_equal_approx(square_zoom):
@@ -51,8 +51,8 @@ func _initialize() -> void:
 		quit(1)
 		return
 
-	if initial_hud_scale != Vector2.ONE or wide_hud_scale != Vector2.ONE or square_hud_scale != Vector2.ONE:
-		push_error("HUD root should not scale with viewport size; layout should remain responsive instead.")
+	if not is_equal_approx(initial_hud_scale, root.gui_scale_factor) or not is_equal_approx(wide_hud_scale, root.gui_scale_factor) or not is_equal_approx(square_hud_scale, root.gui_scale_factor):
+		push_error("HUD physical scale should remain equal to gui_scale_factor across viewport sizes.")
 		quit(1)
 		return
 

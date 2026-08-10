@@ -1,5 +1,7 @@
 extends SceneTree
 
+const IsoBuilding3DLayer := preload("res://scripts/iso_building_3d_layer.gd")
+
 
 func _initialize() -> void:
 	var scene := load("res://scenes/main.tscn") as PackedScene
@@ -234,6 +236,10 @@ func _initialize() -> void:
 		push_error("Main scene should create a WorldEnvironment with ambient lighting.")
 		quit(1)
 		return
+	if not world_environment.environment.glow_enabled:
+		push_error("WorldEnvironment should enable Web-compatible glow for emissive Chrystallis fields.")
+		quit(1)
+		return
 	if terrain_3d_layer.get_child_count() > 0:
 		var terrain_instance := terrain_3d_layer.get_child(0) as MeshInstance3D
 		var terrain_material := terrain_instance.material_override as ShaderMaterial
@@ -250,12 +256,23 @@ func _initialize() -> void:
 		push_error("Terrain3DLayer should render one continuous mesh per chunk, not one plane per tile.")
 		quit(1)
 		return
-	if terrain_3d_layer.biome_texture == null or terrain_3d_layer.ecology_texture == null:
+	if terrain_3d_layer.biome_texture == null or terrain_3d_layer.ecology_texture == null or terrain_3d_layer.crystal_glow_texture == null:
 		push_error("Terrain3DLayer should retain its generated biome and ecology fields for surface baking.")
 		quit(1)
 		return
-	if surface_detail_3d_layer.meshes.size() < 4 or surface_detail_3d_layer.last_placement_count <= 0:
-		push_error("SurfaceDetail3DLayer should generate reusable rock, crystal, fungus and vent details.")
+	if surface_detail_3d_layer.meshes.size() < 6 or surface_detail_3d_layer.last_placement_count <= 0:
+		push_error("SurfaceDetail3DLayer should generate reusable rock, three Chrystallis, fungus and vent details.")
+		quit(1)
+		return
+	for crystal_detail_type in surface_detail_3d_layer.CHRYSTALLIS_DETAIL_TYPES:
+		var crystal_mesh := surface_detail_3d_layer.meshes[int(crystal_detail_type)] as Mesh
+		var crystal_material := surface_detail_3d_layer.materials[int(crystal_detail_type)] as ShaderMaterial
+		if crystal_mesh == null or crystal_mesh.get_surface_count() <= 0 or crystal_material == null or crystal_material.shader == null:
+			push_error("Every Chrystallis variant should load its model mesh and share the procedural energy shader.")
+			quit(1)
+			return
+	if surface_detail_3d_layer.last_chrystallis_placement_count <= 0:
+		push_error("Generated wilderness should place seeded Chrystallis model instances.")
 		quit(1)
 		return
 	for detail_instance in surface_detail_3d_layer.get_children():
@@ -549,12 +566,28 @@ func _initialize() -> void:
 			push_error("The restored mountain renderer should keep its original single-mesh structure.")
 			quit(1)
 			return
-	if root.game_hud_root.scale != Vector2.ONE:
-		push_error("Game HUD should keep stable 1.0 UI scale so font size is viewport-independent.")
+	if not is_equal_approx(root.get_effective_hud_scale_for_tests(), root.gui_scale_factor):
+		push_error("Game HUD should compensate canvas stretch and preserve the configured physical UI scale.")
 		quit(1)
 		return
 	if root.ui_root.theme.get_font_size("font_size", "Label") != 18:
 		push_error("UI theme should keep Label font size at 18px.")
+		quit(1)
+		return
+	if root.ui_root.texture_filter != CanvasItem.TEXTURE_FILTER_LINEAR:
+		push_error("UI artwork should use linear texture filtering at fractional GUI scales.")
+		quit(1)
+		return
+	if int(ProjectSettings.get_setting("rendering/textures/canvas_textures/default_texture_filter", -1)) != 1:
+		push_error("Canvas textures should default to linear filtering; pixel-art renderers opt into nearest filtering.")
+		quit(1)
+		return
+	if not bool(ProjectSettings.get_setting("gui/theme/default_font_multichannel_signed_distance_field", false)):
+		push_error("The default UI font should use MSDF rendering.")
+		quit(1)
+		return
+	if not bool(ProjectSettings.get_setting("gui/theme/default_font_generate_mipmaps", false)):
+		push_error("The default UI font should generate mipmaps for clean fractional scaling.")
 		quit(1)
 		return
 

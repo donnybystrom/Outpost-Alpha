@@ -5,6 +5,7 @@ signal sandbox_loading_finished
 const IsoCamera := preload("res://scripts/iso_camera.gd")
 const IsoBuilding3DLayer := preload("res://scripts/iso_building_3d_layer.gd")
 const IsoBuildingPreview3DLayer := preload("res://scripts/iso_building_preview_3d_layer.gd")
+const BuildingThumbnail3D := preload("res://scripts/building_thumbnail_3d.gd")
 const IsoCamera3D := preload("res://scripts/iso_camera_3d.gd")
 const IsoMountain3DLayer := preload("res://scripts/iso_mountain_3d_layer.gd")
 const IsoRoad3DLayer := preload("res://scripts/iso_road_3d_layer.gd")
@@ -20,6 +21,18 @@ const HUD_MAX_WIDTH := 460.0
 const HUD_MARGIN := 16.0
 const UI_FONT_SIZE := 18
 const UI_SMALL_FONT_SIZE := 16
+const DEFAULT_GUI_SCALE_FACTOR := 1.0
+const MIN_GUI_SCALE_FACTOR := 0.5
+const MAX_GUI_SCALE_FACTOR := 2.5
+const SHARON_AVATAR_PATH := "res://assets/avatars/sharon/sharon_hud.png"
+const HUD_BG := Color(0.018, 0.045, 0.052, 0.94)
+const HUD_BG_RAISED := Color(0.028, 0.066, 0.075, 0.97)
+const HUD_BORDER := Color(0.18, 0.43, 0.49, 0.92)
+const HUD_BORDER_MUTED := Color(0.11, 0.25, 0.28, 0.9)
+const HUD_CYAN := Color(0.12, 0.83, 0.88, 1.0)
+const HUD_ORANGE := Color(0.96, 0.42, 0.09, 1.0)
+const HUD_TEXT := Color(0.82, 0.86, 0.85, 1.0)
+const HUD_TEXT_MUTED := Color(0.48, 0.57, 0.58, 1.0)
 const START_CAMERA_ZOOM := 2.0
 const RUNTIME_CONFIG_PATH := "res://config/runtime.cfg"
 const START_SCREEN_BACKGROUND_PATH := "res://assets/start_screen_background.png"
@@ -81,7 +94,13 @@ var performance_label: Label
 var hud_panel: PanelContainer
 var resource_bar_panel: PanelContainer
 var hq_metal_value_label: Label
-var sharon_panel: PanelContainer
+var habitation_value_label: Label
+var personnel_value_label: Label
+var power_value_label: Label
+var oxygen_value_label: Label
+var power_progress_bar: ProgressBar
+var oxygen_progress_bar: ProgressBar
+var sharon_panel: Panel
 var game_title_label: Label
 var construction_panel: PanelContainer
 var road_submenu_panel: PanelContainer
@@ -90,9 +109,12 @@ var road_delete_mode_button: Button
 var selected_building_panel: PanelContainer
 var selected_building_title_label: Label
 var selected_building_stats_label: Label
-var selected_building_actions_row: HBoxContainer
+var selected_building_description_label: Label
+var selected_building_thumbnail: BuildingThumbnail3D
+var selected_building_actions_row: VBoxContainer
 var build_drilling_machine_button: Button
 var build_hauler_button: Button
+var assign_personnel_button: Button
 var dev_tools_row: HBoxContainer
 var road_tool_button: Button
 var oxygen_extractor_button: Button
@@ -113,6 +135,7 @@ var is_dev_mode: bool = false
 var admin_panel_visible: bool = false
 var music_enabled: bool = true
 var music_volume_db: float = -10.0
+var gui_scale_factor: float = DEFAULT_GUI_SCALE_FACTOR
 var sun_rotation_degrees: Vector3 = SUN_ROTATION_DEGREES
 var sun_orbit_enabled: bool = false
 var sun_orbit_degrees_per_second: float = SUN_ORBIT_DEGREES_PER_SECOND
@@ -293,6 +316,11 @@ func _load_runtime_config() -> void:
 		return
 	music_enabled = bool(config.get_value("audio", "music_enabled", true))
 	music_volume_db = float(config.get_value("audio", "music_volume_db", -10.0))
+	gui_scale_factor = clampf(
+		float(config.get_value("ui", "gui_scale_factor", DEFAULT_GUI_SCALE_FACTOR)),
+		MIN_GUI_SCALE_FACTOR,
+		MAX_GUI_SCALE_FACTOR
+	)
 	sun_rotation_degrees = Vector3(
 		float(config.get_value("lighting", "sun_pitch_degrees", SUN_ROTATION_DEGREES.x)),
 		float(config.get_value("lighting", "sun_yaw_degrees", SUN_ROTATION_DEGREES.y)),
@@ -332,6 +360,9 @@ func _build_ui() -> void:
 	ui_root = Control.new()
 	ui_root.name = "UiRoot"
 	ui_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# UI artwork should interpolate smoothly at user-selected fractional scales.
+	# Pixel-art world renderers override this with TEXTURE_FILTER_NEAREST.
+	ui_root.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	ui_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	ui_root.theme = _build_ui_theme()
 	ui.add_child(ui_root)
@@ -348,6 +379,49 @@ func _build_ui_theme() -> Theme:
 		theme.set_font_size("font_size", type_name, UI_FONT_SIZE)
 	theme.set_font_size("font_size", "TabBar", UI_SMALL_FONT_SIZE)
 	return theme
+
+
+func _hud_style(background_color: Color, border_color: Color, border_width := 1, radius := 5) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = background_color
+	style.border_color = border_color
+	style.border_width_left = border_width
+	style.border_width_top = border_width
+	style.border_width_right = border_width
+	style.border_width_bottom = border_width
+	style.corner_radius_top_left = radius
+	style.corner_radius_top_right = radius
+	style.corner_radius_bottom_right = radius
+	style.corner_radius_bottom_left = radius
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.45)
+	style.shadow_size = 5
+	return style
+
+
+func _apply_hud_panel_style(panel: Control, accent := HUD_BORDER) -> void:
+	panel.add_theme_stylebox_override("panel", _hud_style(HUD_BG, accent, 1, 5))
+
+
+func _apply_hud_button_style(button: Button, accent := HUD_BORDER) -> void:
+	button.add_theme_stylebox_override("normal", _hud_style(Color(0.02, 0.055, 0.062, 0.98), accent, 1, 4))
+	button.add_theme_stylebox_override("hover", _hud_style(Color(0.035, 0.095, 0.105, 0.98), accent.lightened(0.18), 1, 4))
+	button.add_theme_stylebox_override("pressed", _hud_style(Color(0.055, 0.12, 0.125, 0.98), HUD_ORANGE, 2, 4))
+	button.add_theme_stylebox_override("disabled", _hud_style(Color(0.018, 0.033, 0.036, 0.86), HUD_BORDER_MUTED, 1, 4))
+	button.add_theme_color_override("font_color", HUD_TEXT)
+	button.add_theme_color_override("font_hover_color", Color.WHITE)
+	button.add_theme_color_override("font_pressed_color", HUD_ORANGE)
+	button.add_theme_color_override("font_disabled_color", HUD_TEXT_MUTED.darkened(0.2))
+	button.add_theme_font_size_override("font_size", 14)
+
+
+func _hud_separator(vertical := false) -> Control:
+	var separator: Control = VSeparator.new() if vertical else HSeparator.new()
+	var line := StyleBoxLine.new()
+	line.color = HUD_BORDER_MUTED
+	line.thickness = 1
+	line.vertical = vertical
+	separator.add_theme_stylebox_override("separator", line)
+	return separator
 
 
 func _build_main_menu() -> void:
@@ -708,63 +782,166 @@ func _build_resource_bar() -> void:
 	resource_bar_panel = PanelContainer.new()
 	resource_bar_panel.name = "ResourceBar"
 	resource_bar_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	resource_bar_panel.custom_minimum_size = Vector2(210, 44)
+	resource_bar_panel.custom_minimum_size = Vector2(1120, 72)
+	_apply_hud_panel_style(resource_bar_panel)
 	game_hud_root.add_child(resource_bar_panel)
 
 	var margin: MarginContainer = MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 14)
-	margin.add_theme_constant_override("margin_top", 8)
-	margin.add_theme_constant_override("margin_right", 14)
-	margin.add_theme_constant_override("margin_bottom", 8)
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_top", 9)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_bottom", 9)
 	resource_bar_panel.add_child(margin)
 
 	var row: HBoxContainer = HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 10)
+	row.add_theme_constant_override("separation", 12)
 	margin.add_child(row)
 
-	var label: Label = Label.new()
-	label.text = "METAL"
-	row.add_child(label)
+	var metal_metric := _add_resource_metric(row, "M", "METAL", "0", HUD_TEXT)
+	hq_metal_value_label = metal_metric["value"]
+	row.add_child(_hud_separator(true))
+	var habitation_metric := _add_resource_metric(row, "H", "HABITATION", "0 / 0", HUD_TEXT)
+	habitation_value_label = habitation_metric["value"]
+	row.add_child(_hud_separator(true))
+	var personnel_metric := _add_resource_metric(row, "P", "AVAILABLE PERSONNEL", "0", HUD_TEXT)
+	personnel_value_label = personnel_metric["value"]
+	row.add_child(_hud_separator(true))
+	var power_metric := _add_resource_metric(row, "E", "POWER DRAW", "0 MW", HUD_ORANGE, true)
+	power_value_label = power_metric["value"]
+	power_progress_bar = power_metric["bar"]
+	row.add_child(_hud_separator(true))
+	var oxygen_metric := _add_resource_metric(row, "O2", "OXYGEN SUPPLY", "0%", HUD_CYAN, true)
+	oxygen_value_label = oxygen_metric["value"]
+	oxygen_progress_bar = oxygen_metric["bar"]
 
-	hq_metal_value_label = Label.new()
-	hq_metal_value_label.text = "0"
-	hq_metal_value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	hq_metal_value_label.custom_minimum_size = Vector2(80, 0)
-	row.add_child(hq_metal_value_label)
+
+func _add_resource_metric(parent: HBoxContainer, code: String, title_text: String, initial_value: String, accent: Color, with_bar := false) -> Dictionary:
+	var metric := HBoxContainer.new()
+	metric.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	metric.add_theme_constant_override("separation", 9)
+	parent.add_child(metric)
+
+	var code_panel := PanelContainer.new()
+	code_panel.custom_minimum_size = Vector2(42, 42)
+	code_panel.add_theme_stylebox_override("panel", _hud_style(Color(0.02, 0.065, 0.073, 1.0), HUD_BORDER_MUTED, 1, 4))
+	metric.add_child(code_panel)
+
+	var code_label := Label.new()
+	code_label.text = code
+	code_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	code_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	code_label.add_theme_color_override("font_color", accent)
+	code_label.add_theme_font_size_override("font_size", 13)
+	code_panel.add_child(code_label)
+
+	var value_box := VBoxContainer.new()
+	value_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	value_box.add_theme_constant_override("separation", 0)
+	metric.add_child(value_box)
+
+	var title := Label.new()
+	title.text = title_text
+	title.add_theme_color_override("font_color", HUD_TEXT_MUTED)
+	title.add_theme_font_size_override("font_size", 11)
+	value_box.add_child(title)
+
+	var value := Label.new()
+	value.text = initial_value
+	value.add_theme_color_override("font_color", HUD_TEXT)
+	value.add_theme_font_size_override("font_size", 20)
+	value_box.add_child(value)
+
+	var result := {"value": value}
+	if with_bar:
+		var bar := ProgressBar.new()
+		bar.min_value = 0.0
+		bar.max_value = 100.0
+		bar.value = 0.0
+		bar.show_percentage = false
+		bar.custom_minimum_size = Vector2(118, 5)
+		bar.add_theme_stylebox_override("background", _hud_style(Color(0.08, 0.12, 0.13, 1.0), Color.TRANSPARENT, 0, 1))
+		bar.add_theme_stylebox_override("fill", _hud_style(accent, Color.TRANSPARENT, 0, 1))
+		value_box.add_child(bar)
+		result["bar"] = bar
+	return result
 
 
 func _build_construction_menu() -> void:
 	construction_panel = PanelContainer.new()
 	construction_panel.name = "ConstructionPanel"
-	construction_panel.custom_minimum_size = Vector2(700, 64)
+	construction_panel.custom_minimum_size = Vector2(1120, 174)
+	_apply_hud_panel_style(construction_panel)
 	game_hud_root.add_child(construction_panel)
 
 	var margin: MarginContainer = MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 10)
-	margin.add_theme_constant_override("margin_top", 8)
-	margin.add_theme_constant_override("margin_right", 10)
-	margin.add_theme_constant_override("margin_bottom", 8)
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_bottom", 10)
 	construction_panel.add_child(margin)
 
-	var box: VBoxContainer = VBoxContainer.new()
-	box.add_theme_constant_override("separation", 6)
-	margin.add_child(box)
+	var root_row := HBoxContainer.new()
+	root_row.add_theme_constant_override("separation", 12)
+	margin.add_child(root_row)
 
-	var build_row: HBoxContainer = HBoxContainer.new()
-	build_row.add_theme_constant_override("separation", 8)
-	box.add_child(build_row)
+	var section_panel := PanelContainer.new()
+	section_panel.custom_minimum_size = Vector2(174, 0)
+	section_panel.add_theme_stylebox_override("panel", _hud_style(Color(0.02, 0.055, 0.062, 0.7), HUD_BORDER_MUTED, 1, 4))
+	root_row.add_child(section_panel)
 
-	oxygen_extractor_button = _add_tool_button(build_row, "Oxygen 40", "building:oxygen_extractor")
-	living_quarters_button = _add_tool_button(build_row, "Living", "building:living_quarters")
-	machine_park_button = _add_tool_button(build_row, "Machines 60", "building:machine_park")
-	milling_plant_button = _add_tool_button(build_row, "Milling 40", "building:milling_plant")
-	road_tool_button = _add_tool_button(build_row, "Road", "road")
+	var section_box := VBoxContainer.new()
+	section_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	section_box.add_theme_constant_override("separation", 4)
+	section_panel.add_child(section_box)
+
+	var section_icon := Label.new()
+	section_icon.text = "+"
+	section_icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	section_icon.add_theme_color_override("font_color", HUD_TEXT_MUTED)
+	section_icon.add_theme_font_size_override("font_size", 28)
+	section_box.add_child(section_icon)
+
+	var section_title := Label.new()
+	section_title.text = "CONSTRUCTION"
+	section_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	section_title.add_theme_color_override("font_color", HUD_TEXT)
+	section_title.add_theme_font_size_override("font_size", 14)
+	section_box.add_child(section_title)
+
+	var section_subtitle := Label.new()
+	section_subtitle.text = "BUILD COLONY"
+	section_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	section_subtitle.add_theme_color_override("font_color", HUD_ORANGE)
+	section_subtitle.add_theme_font_size_override("font_size", 10)
+	section_box.add_child(section_subtitle)
+
+	var catalog_box := VBoxContainer.new()
+	catalog_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	catalog_box.add_theme_constant_override("separation", 7)
+	root_row.add_child(catalog_box)
+
+	var tiers_row := HBoxContainer.new()
+	tiers_row.add_theme_constant_override("separation", 6)
+	catalog_box.add_child(tiers_row)
+	_add_tier_tab(tiers_row, "TIER 1", "SELF-BUILT", true)
+	_add_tier_tab(tiers_row, "TIER 2", "LOCKED", false)
+	_add_tier_tab(tiers_row, "TIER 3", "LOCKED", false)
+
+	var build_row := HBoxContainer.new()
+	build_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	build_row.add_theme_constant_override("separation", 7)
+	catalog_box.add_child(build_row)
+
+	living_quarters_button = _add_building_card(build_row, "living_quarters", "LIVING QUARTERS", "+8 HABITATION")
+	oxygen_extractor_button = _add_building_card(build_row, "oxygen_extractor", "OXYGEN EXTRACTOR", "+5 OXYGEN")
+	machine_park_button = _add_building_card(build_row, "machine_park", "MACHINE PARK", "BUILD VEHICLES")
+	milling_plant_button = _add_building_card(build_row, "milling_plant", "MILLING PLANT", "ORE > METAL")
+	road_tool_button = _add_road_card(build_row)
 	_build_road_submenu()
 
 	dev_tools_row = HBoxContainer.new()
 	dev_tools_row.add_theme_constant_override("separation", 8)
-	box.add_child(dev_tools_row)
+	catalog_box.add_child(dev_tools_row)
 
 	_add_tool_button(dev_tools_row, "Basalt", "terrain:0")
 	_add_tool_button(dev_tools_row, "Scrub", "terrain:1")
@@ -776,11 +953,126 @@ func _build_construction_menu() -> void:
 	_build_sharon_briefing()
 
 
+func _add_tier_tab(parent: HBoxContainer, title_text: String, subtitle_text: String, active: bool) -> void:
+	var tab := PanelContainer.new()
+	tab.custom_minimum_size = Vector2(172, 34)
+	tab.add_theme_stylebox_override(
+		"panel",
+		_hud_style(Color(0.025, 0.06, 0.066, 0.96), HUD_ORANGE if active else HUD_BORDER_MUTED, 1, 3)
+	)
+	parent.add_child(tab)
+
+	var box := VBoxContainer.new()
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_theme_constant_override("separation", -2)
+	tab.add_child(box)
+
+	var title := Label.new()
+	title.text = ("V  " if active else "[]  ") + title_text
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_color_override("font_color", HUD_ORANGE if active else HUD_TEXT_MUTED)
+	title.add_theme_font_size_override("font_size", 12)
+	box.add_child(title)
+
+	var subtitle := Label.new()
+	subtitle.text = subtitle_text
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subtitle.add_theme_color_override("font_color", HUD_ORANGE.darkened(0.18) if active else HUD_TEXT_MUTED.darkened(0.25))
+	subtitle.add_theme_font_size_override("font_size", 8)
+	box.add_child(subtitle)
+
+
+func _add_building_card(parent: HBoxContainer, building_type: String, title_text: String, detail_text: String) -> Button:
+	var button := Button.new()
+	button.toggle_mode = true
+	button.clip_contents = true
+	button.set_meta("tool_id", "building:%s" % building_type)
+	button.custom_minimum_size = Vector2(154, 112)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.pressed.connect(_select_build_tool.bind("building:%s" % building_type))
+	button.mouse_entered.connect(_request_building_tool_warmup.bind(building_type))
+	button.focus_entered.connect(_request_building_tool_warmup.bind(building_type))
+	_apply_hud_button_style(button, HUD_BORDER_MUTED)
+	parent.add_child(button)
+	tool_buttons.append(button)
+
+	var content := VBoxContainer.new()
+	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	content.offset_left = 5
+	content.offset_top = 3
+	content.offset_right = -5
+	content.offset_bottom = -4
+	content.add_theme_constant_override("separation", 0)
+	button.add_child(content)
+
+	var thumbnail: BuildingThumbnail3D = BuildingThumbnail3D.new()
+	thumbnail.setup(building_type, Vector2i(192, 80))
+	thumbnail.custom_minimum_size = Vector2(142, 64)
+	thumbnail.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content.add_child(thumbnail)
+
+	var title := Label.new()
+	title.text = title_text
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_color_override("font_color", HUD_TEXT)
+	title.add_theme_font_size_override("font_size", 11)
+	content.add_child(title)
+
+	var detail := Label.new()
+	detail.text = detail_text
+	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	detail.add_theme_color_override("font_color", HUD_TEXT_MUTED)
+	detail.add_theme_font_size_override("font_size", 9)
+	content.add_child(detail)
+	return button
+
+
+func _add_road_card(parent: HBoxContainer) -> Button:
+	var button := Button.new()
+	button.toggle_mode = true
+	button.set_meta("tool_id", "road")
+	button.custom_minimum_size = Vector2(128, 112)
+	button.pressed.connect(_select_build_tool.bind("road"))
+	_apply_hud_button_style(button, HUD_BORDER_MUTED)
+	parent.add_child(button)
+	tool_buttons.append(button)
+
+	var content := VBoxContainer.new()
+	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	content.alignment = BoxContainer.ALIGNMENT_CENTER
+	button.add_child(content)
+
+	var road_mark := Label.new()
+	road_mark.text = "========"
+	road_mark.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	road_mark.add_theme_color_override("font_color", HUD_TEXT_MUTED)
+	road_mark.add_theme_font_size_override("font_size", 24)
+	content.add_child(road_mark)
+
+	var title := Label.new()
+	title.text = "ROAD"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_color_override("font_color", HUD_TEXT)
+	title.add_theme_font_size_override("font_size", 11)
+	content.add_child(title)
+
+	var detail := Label.new()
+	detail.text = "CONNECTS BUILDINGS"
+	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	detail.add_theme_color_override("font_color", HUD_TEXT_MUTED)
+	detail.add_theme_font_size_override("font_size", 8)
+	content.add_child(detail)
+	return button
+
+
 func _build_road_submenu() -> void:
 	road_submenu_panel = PanelContainer.new()
 	road_submenu_panel.name = "RoadSubmenuPanel"
 	road_submenu_panel.visible = false
 	road_submenu_panel.custom_minimum_size = Vector2(300, 52)
+	_apply_hud_panel_style(road_submenu_panel)
 	game_hud_root.add_child(road_submenu_panel)
 
 	var margin := MarginContainer.new()
@@ -799,6 +1091,7 @@ func _build_road_submenu() -> void:
 	road_build_mode_button.toggle_mode = true
 	road_build_mode_button.custom_minimum_size = Vector2(132, 32)
 	road_build_mode_button.pressed.connect(_select_build_tool.bind("road"))
+	_apply_hud_button_style(road_build_mode_button, HUD_ORANGE.darkened(0.2))
 	row.add_child(road_build_mode_button)
 
 	road_delete_mode_button = Button.new()
@@ -806,6 +1099,7 @@ func _build_road_submenu() -> void:
 	road_delete_mode_button.toggle_mode = true
 	road_delete_mode_button.custom_minimum_size = Vector2(132, 32)
 	road_delete_mode_button.pressed.connect(_select_build_tool.bind("road_delete"))
+	_apply_hud_button_style(road_delete_mode_button, HUD_ORANGE.darkened(0.2))
 	row.add_child(road_delete_mode_button)
 
 
@@ -813,71 +1107,117 @@ func _build_selected_building_panel() -> void:
 	selected_building_panel = PanelContainer.new()
 	selected_building_panel.name = "SelectedBuildingPanel"
 	selected_building_panel.visible = false
-	selected_building_panel.custom_minimum_size = Vector2(340, 180)
+	selected_building_panel.custom_minimum_size = Vector2(368, 330)
+	_apply_hud_panel_style(selected_building_panel)
 	game_hud_root.add_child(selected_building_panel)
 
 	var margin: MarginContainer = MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 12)
-	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_top", 9)
 	margin.add_theme_constant_override("margin_right", 12)
-	margin.add_theme_constant_override("margin_bottom", 10)
+	margin.add_theme_constant_override("margin_bottom", 9)
 	selected_building_panel.add_child(margin)
 
 	var box: VBoxContainer = VBoxContainer.new()
-	box.add_theme_constant_override("separation", 8)
+	box.add_theme_constant_override("separation", 4)
 	margin.add_child(box)
 
 	selected_building_title_label = Label.new()
 	selected_building_title_label.text = "BUILDING"
+	selected_building_title_label.add_theme_color_override("font_color", HUD_TEXT)
+	selected_building_title_label.add_theme_font_size_override("font_size", 16)
 	box.add_child(selected_building_title_label)
+	box.add_child(_hud_separator())
+
+	selected_building_thumbnail = BuildingThumbnail3D.new()
+	selected_building_thumbnail.setup("machine_park", Vector2i(320, 144))
+	selected_building_thumbnail.custom_minimum_size = Vector2(330, 72)
+	box.add_child(selected_building_thumbnail)
 
 	selected_building_stats_label = Label.new()
 	selected_building_stats_label.text = ""
 	selected_building_stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	selected_building_stats_label.add_theme_color_override("font_color", HUD_TEXT)
+	selected_building_stats_label.add_theme_font_size_override("font_size", 11)
 	box.add_child(selected_building_stats_label)
 
-	selected_building_actions_row = HBoxContainer.new()
+	selected_building_description_label = Label.new()
+	selected_building_description_label.text = ""
+	selected_building_description_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	selected_building_description_label.add_theme_color_override("font_color", HUD_TEXT_MUTED)
+	selected_building_description_label.add_theme_font_size_override("font_size", 10)
+	box.add_child(selected_building_description_label)
+
+	selected_building_actions_row = VBoxContainer.new()
 	selected_building_actions_row.add_theme_constant_override("separation", 8)
 	box.add_child(selected_building_actions_row)
 
 	build_drilling_machine_button = Button.new()
-	build_drilling_machine_button.text = "Drill -50 metal"
-	build_drilling_machine_button.custom_minimum_size = Vector2(130, 32)
+	build_drilling_machine_button.text = "QUEUE DRILLING MACHINE   ·   50 M"
+	build_drilling_machine_button.custom_minimum_size = Vector2(330, 28)
 	build_drilling_machine_button.pressed.connect(_build_vehicle_from_selected.bind("drilling_machine"))
+	_apply_hud_button_style(build_drilling_machine_button, HUD_ORANGE.darkened(0.2))
 	selected_building_actions_row.add_child(build_drilling_machine_button)
 
 	build_hauler_button = Button.new()
-	build_hauler_button.text = "Hauler -35 metal"
-	build_hauler_button.custom_minimum_size = Vector2(130, 32)
+	build_hauler_button.text = "QUEUE HAULER   ·   35 M"
+	build_hauler_button.custom_minimum_size = Vector2(330, 28)
 	build_hauler_button.pressed.connect(_build_vehicle_from_selected.bind("hauler"))
+	_apply_hud_button_style(build_hauler_button, HUD_ORANGE.darkened(0.2))
 	selected_building_actions_row.add_child(build_hauler_button)
+
+	assign_personnel_button = Button.new()
+	assign_personnel_button.text = "ASSIGN PERSONNEL"
+	assign_personnel_button.custom_minimum_size = Vector2(330, 28)
+	assign_personnel_button.pressed.connect(_change_role_assignment.bind("digger", 1))
+	_apply_hud_button_style(assign_personnel_button, HUD_CYAN.darkened(0.2))
+	selected_building_actions_row.add_child(assign_personnel_button)
 
 
 func _build_sharon_briefing() -> void:
-	sharon_panel = PanelContainer.new()
+	sharon_panel = Panel.new()
 	sharon_panel.name = "SharonBriefing"
 	sharon_panel.visible = false
-	sharon_panel.custom_minimum_size = Vector2(460, 220)
+	sharon_panel.custom_minimum_size = Vector2(470, 190)
+	sharon_panel.clip_contents = true
+	_apply_hud_panel_style(sharon_panel, HUD_CYAN.darkened(0.35))
 	game_hud_root.add_child(sharon_panel)
 
-	var margin: MarginContainer = MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 16)
-	margin.add_theme_constant_override("margin_top", 14)
-	margin.add_theme_constant_override("margin_right", 16)
-	margin.add_theme_constant_override("margin_bottom", 14)
-	sharon_panel.add_child(margin)
+	var portrait_frame := Panel.new()
+	portrait_frame.position = Vector2(8, 8)
+	portrait_frame.size = Vector2(142, 174)
+	portrait_frame.clip_contents = true
+	portrait_frame.add_theme_stylebox_override("panel", _hud_style(Color(0.01, 0.03, 0.035, 1.0), HUD_CYAN.darkened(0.3), 1, 3))
+	sharon_panel.add_child(portrait_frame)
 
-	var box: VBoxContainer = VBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
-	margin.add_child(box)
+	var portrait := TextureRect.new()
+	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	portrait.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	if ResourceLoader.exists(SHARON_AVATAR_PATH):
+		portrait.texture = load(SHARON_AVATAR_PATH) as Texture2D
+	portrait_frame.add_child(portrait)
+
+	var box := VBoxContainer.new()
+	box.position = Vector2(162, 11)
+	box.size = Vector2(296, 168)
+	box.add_theme_constant_override("separation", 7)
+	sharon_panel.add_child(box)
 
 	var speaker: Label = Label.new()
-	speaker.text = "SHARON // MISSION CONTROL"
+	speaker.text = "ORBITAL COMMAND // SHARON"
+	speaker.add_theme_color_override("font_color", HUD_CYAN)
+	speaker.add_theme_font_size_override("font_size", 13)
 	box.add_child(speaker)
+	box.add_child(_hud_separator())
 
 	var message: Label = Label.new()
-	message.text = "Planet Lander inbound. Hold the landing zone. This colony is our best chance to keep humanity alive.\n\nOnce the module touches down, your reserve oxygen will last only a few days. Build an Oxygen Extractor first. One module can support up to 5 colonists."
+	message.text = "Planet Lander inbound. Hold the landing zone. Once the module touches down, reserve oxygen will last only a few days. Build an Oxygen Extractor first."
 	message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	message.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	message.add_theme_color_override("font_color", HUD_TEXT)
+	message.add_theme_font_size_override("font_size", 13)
 	box.add_child(message)
 
 	var button_row: HBoxContainer = HBoxContainer.new()
@@ -885,9 +1225,10 @@ func _build_sharon_briefing() -> void:
 	box.add_child(button_row)
 
 	var dismiss_button: Button = Button.new()
-	dismiss_button.text = "Begin"
-	dismiss_button.custom_minimum_size = Vector2(96, 34)
+	dismiss_button.text = "ACKNOWLEDGE"
+	dismiss_button.custom_minimum_size = Vector2(118, 32)
 	dismiss_button.pressed.connect(_dismiss_sharon_briefing)
+	_apply_hud_button_style(dismiss_button, HUD_CYAN.darkened(0.2))
 	button_row.add_child(dismiss_button)
 
 
@@ -898,6 +1239,7 @@ func _add_tool_button(parent: HBoxContainer, label_text: String, tool_id: String
 	button.set_meta("tool_id", tool_id)
 	button.custom_minimum_size = Vector2(92, 32)
 	button.pressed.connect(_select_build_tool.bind(tool_id))
+	_apply_hud_button_style(button, HUD_BORDER_MUTED)
 	if tool_id.begins_with("building:"):
 		var building_type := tool_id.trim_prefix("building:")
 		button.mouse_entered.connect(_request_building_tool_warmup.bind(building_type))
@@ -1163,6 +1505,14 @@ func _build_world_lighting() -> void:
 		environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 		environment.ambient_light_color = AMBIENT_LIGHT_COLOR
 		environment.ambient_light_energy = AMBIENT_LIGHT_ENERGY
+		environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+		# Compatibility uses a simpler glow path than Forward+, but it keeps the
+		# overbright Chrystallis emission readable in both desktop and Web builds.
+		environment.glow_enabled = true
+		environment.glow_intensity = 0.48
+		environment.glow_bloom = 0.06
+		environment.glow_hdr_threshold = 0.92
+		environment.glow_hdr_scale = 1.10
 
 		world_environment = WorldEnvironment.new()
 		world_environment.name = "WorldEnvironment"
@@ -1278,7 +1628,7 @@ func _toggle_admin_panel() -> void:
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var key := event as InputEventKey
-		if key.pressed and not key.echo and key.keycode == KEY_R and app_state == AppState.IN_GAME:
+		if key.pressed and not key.echo and key.keycode == KEY_E and app_state == AppState.IN_GAME:
 			_replay_planet_lander_landing()
 			get_viewport().set_input_as_handled()
 			return
@@ -1376,6 +1726,8 @@ func _change_role_assignment(role: String, delta: int) -> void:
 		world.change_digger_operators(delta)
 	elif role == "infantry":
 		world.change_infantry(delta)
+	_sync_resource_bar()
+	_sync_selected_building_panel()
 
 
 func _on_grid_rendering_toggled(_enabled: bool) -> void:
@@ -1391,7 +1743,7 @@ func _apply_grid_rendering_setting() -> void:
 func _sync_game_mode_ui() -> void:
 	game_title_label.text = "OUTPOST ALPHA - DEV MODE" if is_dev_mode else "OUTPOST ALPHA - SANDBOX"
 	dev_tools_row.visible = is_dev_mode
-	construction_panel.custom_minimum_size = Vector2(860, 104) if is_dev_mode else Vector2(700, 64)
+	construction_panel.custom_minimum_size = Vector2(1120, 216) if is_dev_mode else Vector2(1120, 174)
 	_sync_debug_hud_visibility()
 
 
@@ -1449,27 +1801,30 @@ func _layout_sandbox_setup(viewport_size: Vector2) -> void:
 
 
 func _layout_game_hud(viewport_size: Vector2) -> void:
-	game_hud_root.scale = Vector2.ONE
+	var canvas_stretch_scale := _get_canvas_stretch_scale(viewport_size)
+	var hud_transform_scale := gui_scale_factor / canvas_stretch_scale
+	game_hud_root.scale = Vector2.ONE * hud_transform_scale
 
-	var logical_size: Vector2 = viewport_size
+	# Layout in physical-window pixels divided by the user-selected scale. The
+	# inverse canvas transform above keeps the on-screen result independent of
+	# the current window dimensions.
+	var logical_size := viewport_size * canvas_stretch_scale / gui_scale_factor
 	var panel_width: float = minf(HUD_MAX_WIDTH, logical_size.x - HUD_MARGIN * 2.0)
 	hud_panel.position = Vector2(HUD_MARGIN, HUD_MARGIN)
 	hud_panel.custom_minimum_size = Vector2(panel_width, 300)
 	hud_panel.size = Vector2(panel_width, 300)
 
 	if sharon_panel != null:
-		var briefing_size: Vector2 = Vector2(minf(520.0, logical_size.x - HUD_MARGIN * 2.0), 240.0)
+		var briefing_size: Vector2 = Vector2(minf(480.0, logical_size.x - HUD_MARGIN * 2.0), 190.0)
 		sharon_panel.position = Vector2(
-			logical_size.x - briefing_size.x - HUD_MARGIN,
-			HUD_MARGIN
+			HUD_MARGIN,
+			HUD_MARGIN + 84.0
 		)
 		sharon_panel.size = briefing_size
 
 	if selected_building_panel != null:
-		var selected_size := Vector2(minf(380.0, logical_size.x - HUD_MARGIN * 2.0), 190.0)
-		var selected_y := HUD_MARGIN
-		if sharon_panel != null and sharon_panel.visible:
-			selected_y = sharon_panel.position.y + sharon_panel.size.y + HUD_MARGIN
+		var selected_size := Vector2(minf(380.0, logical_size.x - HUD_MARGIN * 2.0), 340.0)
+		var selected_y := HUD_MARGIN + 84.0
 		selected_building_panel.position = Vector2(
 			logical_size.x - selected_size.x - HUD_MARGIN,
 			selected_y
@@ -1477,7 +1832,7 @@ func _layout_game_hud(viewport_size: Vector2) -> void:
 		selected_building_panel.size = selected_size
 
 	if resource_bar_panel != null:
-		var resource_size := Vector2(minf(260.0, logical_size.x - HUD_MARGIN * 2.0), 44.0)
+		var resource_size := Vector2(minf(1180.0, logical_size.x - HUD_MARGIN * 2.0), 72.0)
 		resource_bar_panel.position = Vector2(
 			(logical_size.x - resource_size.x) * 0.5,
 			HUD_MARGIN
@@ -1501,17 +1856,39 @@ func _layout_game_hud(viewport_size: Vector2) -> void:
 		road_submenu_panel.size = road_submenu_size
 
 
+func _get_canvas_stretch_scale(viewport_size: Vector2) -> float:
+	var final_scale := get_viewport().get_final_transform().get_scale().abs()
+	var transform_scale := minf(final_scale.x, final_scale.y)
+	if transform_scale > 0.0001:
+		return transform_scale
+
+	var window_size := Vector2(get_window().size)
+	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
+		return 1.0
+	return maxf(minf(window_size.x / viewport_size.x, window_size.y / viewport_size.y), 0.0001)
+
+
+func set_gui_scale_factor(next_scale: float) -> void:
+	gui_scale_factor = clampf(next_scale, MIN_GUI_SCALE_FACTOR, MAX_GUI_SCALE_FACTOR)
+	_queue_responsive_layout()
+
+
+func get_effective_hud_scale_for_tests() -> float:
+	return game_hud_root.scale.x * _get_canvas_stretch_scale(Vector2(get_viewport_rect().size))
+
+
 func _update_viewport_status(viewport_size: Vector2) -> void:
 	if viewport_label == null:
 		return
 
 	var window_size: Vector2i = get_window().size
-	viewport_label.text = "Window: %sx%s  Viewport: %sx%s  Zoom: %.2fx" % [
+	viewport_label.text = "Window: %sx%s  Viewport: %sx%s  Zoom: %.2fx  GUI: %.2fx" % [
 		window_size.x,
 		window_size.y,
 		int(viewport_size.x),
 		int(viewport_size.y),
 		camera.zoom.x if camera != null else 0.0,
+		gui_scale_factor,
 	]
 
 
@@ -1742,9 +2119,33 @@ func _sync_resource_bar() -> void:
 	if hq_metal_value_label == null:
 		return
 	var stored_metal := 0
+	var population := 0
+	var habitation_capacity := 0
+	var available_personnel := 0
+	var power_draw := 0
+	var oxygen_capacity := 0
 	if world != null and world.colony_state != null:
-		stored_metal = world.colony_state.get_hq_stored_metal()
+		var colony = world.colony_state
+		stored_metal = colony.get_hq_stored_metal()
+		population = colony.population
+		habitation_capacity = maxi(population, colony.get_population_capacity())
+		available_personnel = colony.get_idle_population()
+		power_draw = colony.get_power_usage()
+		oxygen_capacity = colony.get_oxygen_capacity()
 	hq_metal_value_label.text = str(stored_metal)
+	if habitation_value_label != null:
+		habitation_value_label.text = "%d / %d" % [population, habitation_capacity]
+	if personnel_value_label != null:
+		personnel_value_label.text = str(available_personnel)
+	if power_value_label != null:
+		power_value_label.text = "%d / 120 MW" % power_draw
+	if power_progress_bar != null:
+		power_progress_bar.value = clampf(float(power_draw) / 120.0 * 100.0, 0.0, 100.0)
+	var oxygen_percent := 0.0 if population <= 0 else clampf(float(oxygen_capacity) / float(population) * 100.0, 0.0, 100.0)
+	if oxygen_value_label != null:
+		oxygen_value_label.text = "%d / %d   %d%%" % [oxygen_capacity, population, int(oxygen_percent)]
+	if oxygen_progress_bar != null:
+		oxygen_progress_bar.value = oxygen_percent
 
 
 func _sync_construction_button_state() -> void:
@@ -1777,26 +2178,40 @@ func _sync_selected_building_panel() -> void:
 		return
 
 	var definition: Dictionary = world.colony_state.get_building_definition(building)
-	var origin: Vector2i = building.get("origin", Vector2i.ZERO)
 	var footprint: Vector2i = building.get("footprint", Vector2i.ONE)
+	var building_type: String = building.get("type", "")
 	selected_building_title_label.text = str(definition.get("name", building.get("type", "Building"))).to_upper()
-	selected_building_stats_label.text = "Health: %d / %d\nPower draw: %d\nOrigin: %s,%s  Footprint: %sx%s\nStored raw: %d  Stored metal: %d" % [
+	if selected_building_thumbnail != null:
+		selected_building_thumbnail.set_building_type(building_type)
+	var workforce := world.colony_state.digger_operators if building_type == "machine_park" else 0
+	var workforce_capacity := int(definition.get("digger_capacity", 0))
+	selected_building_stats_label.text = "HEALTH          %d / %d\nPOWER DRAW      %d MW\nFOOTPRINT       %s × %s\nWORKFORCE       %d / %d\nSTORED RAW      %d\nSTORED METAL    %d" % [
 		int(building.get("health", 0)),
 		int(building.get("max_health", 0)),
 		int(building.get("power_usage", 0)),
-		origin.x,
-		origin.y,
 		footprint.x,
 		footprint.y,
+		workforce,
+		workforce_capacity,
 		int(building.get("stored_raw", 0)),
 		int(building.get("stored_metal", 0)),
 	]
+	var descriptions := {
+		"living_quarters": "Increases habitation capacity and gives the colony room to grow.",
+		"oxygen_extractor": "Extracts breathable oxygen from the planet's atmosphere.",
+		"machine_park": "Produces vehicles and heavy machinery. Requires power and personnel.",
+		"milling_plant": "Processes raw ore into construction-grade metal.",
+		"hq": "Coordinates the colony and stores strategic resources.",
+		"planet_lander_module": "The colony's orbital transfer and supply module.",
+	}
+	selected_building_description_label.text = descriptions.get(building_type, "Colony infrastructure module.")
 
-	var is_machine_park: bool = building.get("type", "") == "machine_park"
+	var is_machine_park: bool = building_type == "machine_park"
 	selected_building_actions_row.visible = is_machine_park
 	if is_machine_park:
 		build_drilling_machine_button.disabled = not world.colony_state.can_afford_vehicle(building, "drilling_machine")
 		build_hauler_button.disabled = not world.colony_state.can_afford_vehicle(building, "hauler")
+		assign_personnel_button.disabled = world.colony_state.get_idle_population() <= 0 or world.colony_state.digger_operators >= world.colony_state.get_digger_capacity()
 	if not was_visible:
 		_queue_responsive_layout()
 

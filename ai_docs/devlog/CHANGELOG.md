@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Replaced procedural purple crystal placeholders with seeded `chrystallis_1`–`chrystallis_3` model clusters, using a shared textureless opaque energy shader, core-weighted scale variation, Compatibility glow, and a softly emissive terrain spill around each field; the unused 30 MB source texture stack is excluded from Web exports while remaining available for art iteration.
 - Added bounded realtime directional shadows for model-backed buildings, vehicles, animated Space Marines, and the descending Planet Lander, with Web-oriented caster filtering and a 2048 px shadow-map cap.
 - Replaced the preplaced starting HQ with a Planet Lander opening sequence using separate flying and landed 3D models.
 - Added six procedural emissive landing jets, touchdown lighting, eased descent, model swap, and operational-state handoff at landing.
